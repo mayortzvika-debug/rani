@@ -1,0 +1,27 @@
+.app {
+  font-family: Arial, sans-serif;
+}
+
+header {
+  background-color: #333;
+  color: white;
+  padding: 1rem;
+  text-align: center;
+}
+
+nav button {
+  margin: 0 1rem;
+  padding: 0.5rem 1rem;
+  background-color: #555;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+nav button:hover {
+  background-color: #777;
+}
+
+main {
+  padding: 1rem;
+}

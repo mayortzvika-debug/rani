@@ -1,0 +1,10 @@
+node_modules/
+dist/
+storage/
+.playwright-mcp/
+.env.local
+tools/
+cloudflared*.log
+server4180*.log
+*.out.log
+*.err.log

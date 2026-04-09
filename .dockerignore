@@ -1,0 +1,9 @@
+node_modules
+dist
+storage
+cloudflared*.log
+server4180*.log
+*.out.log
+*.err.log
+.playwright-mcp
+bat-yam-hq
