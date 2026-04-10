@@ -295,9 +295,10 @@ export default function App() {
     })()
   }, [sessionCode, isHost])
 
-  // ── Poll for players ──────────────────────────────────────────────────────
+  // ── Poll — players always, host during lobby ──────────────────────────────
   useEffect(() => {
-    if (isHost) return
+    // Host polls only in lobby to pick up new players
+    if (isHost && state.phase !== 'lobby') return
     const id = setInterval(async () => {
       try {
         const data = await api<SessionResponse>(`/api/session/${sessionCode}`)
@@ -307,7 +308,7 @@ export default function App() {
       }
     }, 2000)
     return () => clearInterval(id)
-  }, [isHost, sessionCode])
+  }, [isHost, sessionCode, state.phase])
 
   // Reset vote on round change
   useEffect(() => {
@@ -421,6 +422,9 @@ export default function App() {
         <div className="orb orb-1" />
         <div className="orb orb-2" />
         <div className="host-shell">
+          {/* Banner */}
+          <img src="/banner.png" alt="מה באמת קרה?" className="game-banner" />
+
           {/* Header */}
           <header className="host-header">
             <div>
@@ -751,7 +755,7 @@ export default function App() {
         {/* JOIN */}
         {!joined && (
           <section className="panel join-panel">
-            <p className="eyebrow">🎉 משחק יום הולדת</p>
+            <img src="/banner.png" alt="מה באמת קרה?" className="join-banner" />
             <h1>{state.eventName}</h1>
             <p className="muted">הזן את שמך והצטרף למשחק</p>
             {error && <p className="error-msg">{error}</p>}
