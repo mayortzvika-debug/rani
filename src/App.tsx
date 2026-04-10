@@ -1,35 +1,46 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type GameRound = {
   id: string
   title: string
   prompt: string
   accent: string
-  videoUrl: string
-  videoName: string
-  choices: string[]
+  video1Url: string
+  video1Name: string
+  video2Url: string
+  video2Name: string
+  correctStory: 1 | 2 | null
+}
+
+type PlayerRecord = {
+  deviceId: string
+  name: string
+  joinedAt: string
 }
 
 type VoteRecord = {
   id: string
   roundId: string
-  choiceIndex: number
+  storyIndex: 0 | 1   // 0 = Story 1, 1 = Story 2
   deviceId: string
   voterName: string
   createdAt: string
 }
 
+type GamePhase = 'setup' | 'lobby' | 'round' | 'reveal' | 'final'
+
 type HostState = {
   eventName: string
-  eventDate: string
-  welcomeTitle: string
-  welcomeNote: string
   sessionCode: string
-  currentRoundId: string
-  votingRoundId: string | null
+  phase: GamePhase
+  currentRoundIndex: number
   rounds: GameRound[]
   votes: VoteRecord[]
+  players: PlayerRecord[]
+  votingOpen: boolean
 }
 
 type SessionResponse = {
@@ -37,584 +48,824 @@ type SessionResponse = {
   updatedAt: string
 }
 
-const DEVICE_STORAGE_KEY = 'birthday-battle-device-id'
+type ScoreEntry = { deviceId: string; name: string; score: number }
 
-const INITIAL_ROUNDS: GameRound[] = [
-  {
-    id: 'round-1',
-    title: 'סבב פתיחה',
-    prompt: 'מי סיפק את הרגע הכי מצחיק בסרטון?',
-    accent: '#ff6b6b',
-    videoUrl: '/videos/round-1.mp4',
-    videoName: 'public/videos/round-1.mp4',
-    choices: ['נועה', 'איתי', 'מיה', 'תום'],
-  },
-  {
-    id: 'round-2',
-    title: 'סבב אמצע',
-    prompt: 'איזה ביצוע היה הכי מפתיע?',
-    accent: '#ffd166',
-    videoUrl: '/videos/round-2.mp4',
-    videoName: 'public/videos/round-2.mp4',
-    choices: ['הצוות הכחול', 'הצוות הוורוד', 'הצוות הזהב', 'הצוות הירוק'],
-  },
-  {
-    id: 'round-3',
-    title: 'גמר',
-    prompt: 'מי הזוכה הגדול של הערב?',
-    accent: '#06d6a0',
-    videoUrl: '/videos/round-3.mp4',
-    videoName: 'public/videos/round-3.mp4',
-    choices: ['מלך הרחבה', 'מלכת הרחבה', 'צמד השנה', 'בחירת הקהל'],
-  },
-]
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-function createInitialState(sessionCode: string): HostState {
-  return {
-    eventName: 'Battle Birthday Night',
-    eventDate: 'הערב מתחיל בעוד רגע',
-    welcomeTitle: 'סורקים, צופים, ואז מצביעים',
-    welcomeNote: 'עכשיו אפשר גם להעלות סרטונים מהדפדפן וגם לשים קבצים קבועים בתיקיית public/videos.',
-    sessionCode,
-    currentRoundId: INITIAL_ROUNDS[0].id,
-    votingRoundId: null,
-    rounds: INITIAL_ROUNDS,
-    votes: [],
-  }
+const DEVICE_KEY = 'birthday-battle-device-id'
+const NAME_KEY = 'birthday-battle-player-name'
+const ACCENTS = ['#ff6b6b', '#ffd166', '#06d6a0', '#8a7dff', '#ff9f1c', '#2ec4b6']
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
+function getDeviceId(): string {
+  const existing = localStorage.getItem(DEVICE_KEY)
+  if (existing) return existing
+  const next = `device-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+  localStorage.setItem(DEVICE_KEY, next)
+  return next
 }
 
-function createId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
-}
-
-function createSessionCode() {
+function createCode(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase()
 }
 
-function getSearchParams() {
-  return new URLSearchParams(window.location.search)
+function makeRound(index: number): GameRound {
+  return {
+    id: `round-${Date.now()}-${index}`,
+    title: `שאלה ${index + 1}`,
+    prompt: 'מה הסיפור האמיתי?',
+    accent: ACCENTS[index % ACCENTS.length],
+    video1Url: '',
+    video1Name: '',
+    video2Url: '',
+    video2Name: '',
+    correctStory: null,
+  }
 }
 
-function getBaseUrl() {
-  return `${window.location.origin}${window.location.pathname}`
+function makeInitialState(sessionCode: string): HostState {
+  return {
+    eventName: 'אמת או שקר?',
+    sessionCode,
+    phase: 'setup',
+    currentRoundIndex: 0,
+    rounds: [makeRound(0), makeRound(1), makeRound(2)],
+    votes: [],
+    players: [],
+    votingOpen: false,
+  }
 }
 
-function getJoinUrl(sessionCode: string) {
-  return `${getBaseUrl()}?mode=voter&session=${sessionCode}`
+function joinUrl(code: string): string {
+  return `${location.origin}${location.pathname}?mode=player&session=${code}`
 }
 
-function getQrUrl(sessionCode: string) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=16&data=${encodeURIComponent(getJoinUrl(sessionCode))}`
+function qrUrl(code: string): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=12&data=${encodeURIComponent(joinUrl(code))}`
 }
 
-function getDeviceId() {
-  const existingId = window.localStorage.getItem(DEVICE_STORAGE_KEY)
-
-  if (existingId) {
-    return existingId
-  }
-
-  const nextId = createId('device')
-  window.localStorage.setItem(DEVICE_STORAGE_KEY, nextId)
-  return nextId
+async function api<T>(url: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(url, init)
+  if (!r.ok) throw new Error((await r.text()) || 'Request failed')
+  return r.json() as Promise<T>
 }
 
-async function requestJson<T>(input: RequestInfo, init?: RequestInit) {
-  const response = await fetch(input, init)
-
-  if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || 'Request failed')
-  }
-
-  return (await response.json()) as T
+function phaseLabel(phase: GamePhase): string {
+  return { setup: 'הגדרה', lobby: 'לובי', round: 'שאלה', reveal: 'חשיפה', final: 'סיום' }[phase]
 }
 
-function App() {
-  const initialParams = getSearchParams()
-  const initialMode = initialParams.get('mode') === 'voter' ? 'voter' : 'host'
-  const initialSession = initialParams.get('session')?.toUpperCase() ?? createSessionCode()
-
-  const [mode, setMode] = useState<'host' | 'voter'>(initialMode)
-  const [deviceId] = useState(() => getDeviceId())
-  const [sessionCode, setSessionCode] = useState(initialSession)
-  const [sessionInput, setSessionInput] = useState(initialSession)
-  const [hostState, setHostState] = useState<HostState>(createInitialState(initialSession))
-  const [updatedAt, setUpdatedAt] = useState('')
-  const [copied, setCopied] = useState(false)
-  const [voterName, setVoterName] = useState('')
-  const [voterChoice, setVoterChoice] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState('')
-
-  const currentRound = useMemo(
-    () => hostState.rounds.find((round) => round.id === hostState.currentRoundId) ?? hostState.rounds[0],
-    [hostState.currentRoundId, hostState.rounds],
-  )
-
-  const votingRound = useMemo(
-    () => hostState.rounds.find((round) => round.id === hostState.votingRoundId) ?? null,
-    [hostState.rounds, hostState.votingRoundId],
-  )
-
-  const leaderboard = useMemo(() => {
-    if (!votingRound) {
-      return []
-    }
-
-    const totalVotes = hostState.votes.filter((vote) => vote.roundId === votingRound.id)
-    return votingRound.choices.map((choice, index) => ({
-      choice,
-      count: totalVotes.filter((vote) => vote.choiceIndex === index).length,
-    }))
-  }, [hostState.votes, votingRound])
-
-  const activeRoundVotes = hostState.votingRoundId
-    ? hostState.votes.filter((vote) => vote.roundId === hostState.votingRoundId).length
-    : 0
-
-  useEffect(() => {
-    const params = new URLSearchParams()
-    params.set('mode', mode)
-    params.set('session', sessionCode)
-    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`)
-  }, [mode, sessionCode])
-
-  useEffect(() => {
-    const hydrateSession = async () => {
-      try {
-        setLoading(true)
-        setMessage('')
-
-        const existing = await fetch(`/api/session/${sessionCode}`)
-
-        if (existing.status === 404 && mode === 'host') {
-          const created = await requestJson<SessionResponse>('/api/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionCode, state: createInitialState(sessionCode) }),
-          })
-          setHostState(created.state)
-          setUpdatedAt(created.updatedAt)
-          return
-        }
-
-        if (!existing.ok) {
-          throw new Error(await existing.text())
-        }
-
-        const data = (await existing.json()) as SessionResponse
-        setHostState(data.state)
-        setUpdatedAt(data.updatedAt)
-      } catch (error) {
-        const nextMessage = error instanceof Error ? error.message : 'לא הצלחנו לטעון את הסשן'
-        setMessage(nextMessage)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    void hydrateSession()
-  }, [mode, sessionCode])
-
-  useEffect(() => {
-    if (mode !== 'voter') {
-      return
-    }
-
-    const interval = window.setInterval(async () => {
-      try {
-        const data = await requestJson<SessionResponse>(`/api/session/${sessionCode}`)
-        setHostState(data.state)
-        setUpdatedAt(data.updatedAt)
-      } catch {
-        // Keep the current screen state and retry on next poll.
-      }
-    }, 2000)
-
-    return () => window.clearInterval(interval)
-  }, [mode, sessionCode])
-
-  useEffect(() => {
-    if (!votingRound) {
-      setVoterChoice(null)
-    }
-  }, [votingRound])
-
-  const persistHostState = async (nextState: HostState) => {
-    setHostState(nextState)
-
-    const response = await requestJson<SessionResponse>(`/api/session/${nextState.sessionCode}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(nextState),
-    })
-
-    setUpdatedAt(response.updatedAt)
-    setHostState(response.state)
-  }
-
-  const updateRound = async (roundId: string, updater: (round: GameRound) => GameRound) => {
-    const nextState = {
-      ...hostState,
-      rounds: hostState.rounds.map((round) => (round.id === roundId ? updater(round) : round)),
-    }
-
-    await persistHostState(nextState)
-  }
-
-  const handleVideoUpload = async (roundId: string, event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-
-    if (!file) {
-      return
-    }
-
-    setMessage('מעלה את הסרטון לשרת...')
-
-    try {
-      const response = await requestJson<{ state: HostState; updatedAt: string }>(
-        `/api/session/${sessionCode}/upload/${roundId}?filename=${encodeURIComponent(file.name)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
-          body: file,
-        },
-      )
-
-      setHostState(response.state)
-      setUpdatedAt(response.updatedAt)
-      setMessage('הסרטון עלה בהצלחה ונשמר בשרת.')
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'העלאת הסרטון נכשלה')
-    } finally {
-      event.target.value = ''
+function computeLeaderboard(rounds: GameRound[], votes: VoteRecord[]): ScoreEntry[] {
+  const map = new Map<string, ScoreEntry>()
+  for (const round of rounds) {
+    if (round.correctStory === null) continue
+    const correctIdx = round.correctStory - 1
+    for (const v of votes.filter((v) => v.roundId === round.id)) {
+      if (!map.has(v.deviceId))
+        map.set(v.deviceId, { deviceId: v.deviceId, name: v.voterName, score: 0 })
+      if (v.storyIndex === correctIdx) map.get(v.deviceId)!.score += 1000
     }
   }
+  return [...map.values()].sort((a, b) => b.score - a.score)
+}
 
-  const openVoting = async (roundId: string) => {
-    const nextState = {
-      ...hostState,
-      currentRoundId: roundId,
-      votingRoundId: roundId,
-    }
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-    await persistHostState(nextState)
-  }
-
-  const closeVoting = async () => {
-    await persistHostState({
-      ...hostState,
-      votingRoundId: null,
-    })
-  }
-
-  const clearVotesForRound = async (roundId: string) => {
-    const response = await requestJson<SessionResponse>(`/api/session/${sessionCode}/votes/${roundId}`, {
-      method: 'DELETE',
-    })
-
-    setHostState(response.state)
-    setUpdatedAt(response.updatedAt)
-  }
-
-  const handleVoteSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-
-    if (!votingRound || voterChoice === null) {
-      return
-    }
-
-    setMessage('שומרים את ההצבעה שלך...')
-
-    try {
-      const response = await requestJson<SessionResponse>(`/api/session/${sessionCode}/vote`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roundId: votingRound.id,
-          choiceIndex: voterChoice,
-          voterName: voterName.trim() || 'אורח/ת',
-          deviceId,
-        }),
-      })
-
-      setHostState(response.state)
-      setUpdatedAt(response.updatedAt)
-      setMessage('ההצבעה נשמרה. אפשר לעדכן בחירה כל עוד הסבב פתוח.')
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'לא הצלחנו לשמור את ההצבעה')
-    }
-  }
-
-  const copyJoinUrl = async () => {
-    await navigator.clipboard.writeText(getJoinUrl(sessionCode))
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1800)
-  }
-
-  const connectToSession = () => {
-    setSessionCode(sessionInput.toUpperCase())
-  }
-
-  if (loading) {
-    return (
-      <div className="experience-shell">
-        <main className="voter-layout">
-          <section className="panel mobile-stage">
-            <h2>טוענים את המשחק...</h2>
-          </section>
-        </main>
-      </div>
-    )
-  }
-
+function VideoSlot({
+  label,
+  colorClass,
+  url,
+  name,
+  onUrl,
+  onFile,
+}: {
+  label: string
+  colorClass: string
+  url: string
+  name: string
+  onUrl: (url: string) => void
+  onFile: (f: File) => void
+}) {
   return (
-    <div className="experience-shell">
-      <div className="backdrop-orb orb-one" />
-      <div className="backdrop-orb orb-two" />
-      <div className="noise-layer" />
-
-      <header className="top-frame">
-        <div>
-          <p className="eyebrow">משחק יום הולדת אינטרנטי</p>
-          <h1>{hostState.eventName}</h1>
-          <p className="lead">{hostState.welcomeNote}</p>
-          <p className="lead">עדכון אחרון: {updatedAt || 'כרגע'}</p>
-          {message ? <p className="lead">{message}</p> : null}
-        </div>
-
-        <div className="mode-toggle" role="tablist" aria-label="בחירת מצב">
-          <button type="button" className={mode === 'host' ? 'mode-pill active' : 'mode-pill'} onClick={() => setMode('host')}>
-            מסך מארח
-          </button>
-          <button type="button" className={mode === 'voter' ? 'mode-pill active' : 'mode-pill'} onClick={() => setMode('voter')}>
-            מסך נייד
-          </button>
-        </div>
-      </header>
-
-      {mode === 'host' ? (
-        <main className="host-layout">
-          <section className="hero-panel panel">
-            <div className="hero-copy">
-              <span className="glass-tag">{hostState.eventDate}</span>
-              <h2>{hostState.welcomeTitle}</h2>
-              <p>יש לך עכשיו שתי דרכים להכניס וידאו: להעלות דרך הממשק, או לשים קבצים קבועים ב־`public/videos` ולהפנות אליהם.</p>
-            </div>
-
-            <div className="qr-card">
-              <img src={getQrUrl(sessionCode)} alt="QR להצטרפות למשחק" className="qr-image" />
-              <div className="qr-meta">
-                <strong>קוד משחק: {sessionCode}</strong>
-                <p>{getJoinUrl(sessionCode)}</p>
-                <button type="button" className="secondary-button" onClick={() => void copyJoinUrl()}>
-                  {copied ? 'הקישור הועתק' : 'העתק קישור לניידים'}
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="control-grid">
-            <article className="panel stat-panel">
-              <span>סבב פעיל</span>
-              <strong>{currentRound.title}</strong>
-            </article>
-            <article className="panel stat-panel">
-              <span>הצבעה פתוחה</span>
-              <strong>{votingRound ? votingRound.title : 'עדיין לא'}</strong>
-            </article>
-            <article className="panel stat-panel">
-              <span>קולות בסבב פתוח</span>
-              <strong>{activeRoundVotes}</strong>
-            </article>
-          </section>
-
-          <section className="rounds-stack">
-            {hostState.rounds.map((round, index) => (
-              <article className="panel round-panel" key={round.id} style={{ ['--accent' as string]: round.accent }}>
-                <div className="round-head">
-                  <div>
-                    <p className="round-index">Round 0{index + 1}</p>
-                    <h3>{round.title}</h3>
-                    <p>{round.prompt}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() =>
-                      void persistHostState({
-                        ...hostState,
-                        currentRoundId: round.id,
-                        votingRoundId: null,
-                      })
-                    }
-                  >
-                    עבור למסך הזה
-                  </button>
-                </div>
-
-                <div className="round-grid">
-                  <div className="video-shell">
-                    {round.videoUrl ? (
-                      <video className="round-video" controls onEnded={() => void openVoting(round.id)} src={round.videoUrl} />
-                    ) : (
-                      <div className="video-placeholder">
-                        <strong>מקום להעלאת סרטון</strong>
-                        <span>אפשר להעלות קובץ מהמחשב או לשייך קובץ קבוע מתיקיית `public/videos`.</span>
-                      </div>
-                    )}
-
-                    <label className="upload-card">
-                      <input type="file" accept="video/*" onChange={(event) => void handleVideoUpload(round.id, event)} />
-                      <span>העלה סרטון לסבב</span>
-                      <small>{round.videoName || 'עדיין לא נבחר קובץ'}</small>
-                    </label>
-
-                    <input
-                      className="field"
-                      value={round.videoUrl}
-                      placeholder="/videos/my-birthday-video.mp4"
-                      onChange={(event) =>
-                        void updateRound(round.id, (currentRoundState) => ({
-                          ...currentRoundState,
-                          videoUrl: event.target.value,
-                          videoName: event.target.value ? `קובץ קבוע: ${event.target.value}` : '',
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div className="round-side">
-                    <div className="choice-editor">
-                      {round.choices.map((choice, choiceIndex) => (
-                        <input
-                          key={`${round.id}-${choiceIndex}`}
-                          className="field"
-                          value={choice}
-                          onChange={(event) =>
-                            void updateRound(round.id, (currentRoundState) => ({
-                              ...currentRoundState,
-                              choices: currentRoundState.choices.map((item, itemIndex) =>
-                                itemIndex === choiceIndex ? event.target.value : item,
-                              ),
-                            }))
-                          }
-                        />
-                      ))}
-                    </div>
-
-                    <textarea
-                      className="field field-area"
-                      value={round.prompt}
-                      onChange={(event) => void updateRound(round.id, (currentRoundState) => ({ ...currentRoundState, prompt: event.target.value }))}
-                    />
-
-                    <div className="round-actions">
-                      <button type="button" className="primary-button" onClick={() => void openVoting(round.id)} disabled={!round.videoUrl}>
-                        פתח הצבעה עכשיו
-                      </button>
-                      <button type="button" className="ghost-button" onClick={() => void clearVotesForRound(round.id)}>
-                        אפס את הסבב
-                      </button>
-                    </div>
-
-                    <div className="round-summary">
-                      <span>{hostState.votingRoundId === round.id ? 'ההצבעה פתוחה' : 'ממתין לסיום וידאו או לפתיחה ידנית'}</span>
-                      <strong>{hostState.votes.filter((vote) => vote.roundId === round.id).length} הצבעות נשמרו</strong>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </section>
-
-          {votingRound ? (
-            <section className="panel results-panel">
-              <div className="round-head">
-                <div>
-                  <p className="round-index">Live Results</p>
-                  <h3>{votingRound.title}</h3>
-                  <p>{votingRound.prompt}</p>
-                </div>
-                <button type="button" className="secondary-button" onClick={() => void closeVoting()}>
-                  סגור הצבעה
-                </button>
-              </div>
-
-              <div className="results-list">
-                {leaderboard.map((entry) => (
-                  <div className="result-row" key={entry.choice}>
-                    <div className="result-line">
-                      <span>{entry.choice}</span>
-                      <strong>{entry.count}</strong>
-                    </div>
-                    <div className="result-bar">
-                      <div
-                        className="result-fill"
-                        style={{ width: `${Math.max(8, activeRoundVotes ? (entry.count / activeRoundVotes) * 100 : 0)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-        </main>
-      ) : (
-        <main className="voter-layout">
-          <section className="panel voter-connect">
-            <div>
-              <p className="eyebrow">כניסה מהנייד</p>
-              <h2>התחברו להצבעה</h2>
-              <p>אפשר להיכנס דרך ה־QR או להזין ידנית את קוד המשחק.</p>
-            </div>
-
-            <div className="connect-row">
-              <input className="field" value={sessionInput} onChange={(event) => setSessionInput(event.target.value.toUpperCase())} placeholder="קוד משחק" />
-              <button type="button" className="primary-button" onClick={connectToSession}>
-                התחבר
-              </button>
-            </div>
-          </section>
-
-          <section className="panel mobile-stage">
-            <span className="glass-tag">{hostState.eventName}</span>
-            <h3>{votingRound ? 'ההצבעה פתוחה עכשיו' : 'מחכים שהמארח יפתח את הסבב הבא'}</h3>
-            <p>{votingRound ? votingRound.prompt : 'ברגע שהווידאו יסתיים אצל המארח, כאן תופיע ההצבעה.'}</p>
-
-            {votingRound ? (
-              <form className="vote-form" onSubmit={(event) => void handleVoteSubmit(event)}>
-                <input className="field" value={voterName} onChange={(event) => setVoterName(event.target.value)} placeholder="השם שלכם (אופציונלי)" />
-
-                <div className="mobile-options">
-                  {votingRound.choices.map((choice, index) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      className={voterChoice === index ? 'vote-card active' : 'vote-card'}
-                      onClick={() => setVoterChoice(index)}
-                    >
-                      <span>{choice}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <button type="submit" className="primary-button" disabled={voterChoice === null}>
-                  שלח הצבעה
-                </button>
-              </form>
-            ) : (
-              <div className="waiting-card">
-                <strong>הסבב עדיין לא פתוח להצבעה.</strong>
-                <span>השאירו את המסך פתוח. הוא מתעדכן אוטומטית כל כמה שניות.</span>
-              </div>
-            )}
-          </section>
-        </main>
-      )}
+    <div className={`video-slot ${colorClass}`}>
+      <div className="slot-label">{label}</div>
+      {url && <video className="slot-preview" src={url} controls />}
+      <label className="upload-label">
+        <input
+          type="file"
+          accept="video/*"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) onFile(f)
+            e.target.value = ''
+          }}
+        />
+        {name ? `✓ ${name.slice(0, 30)}` : '+ העלה סרטון'}
+      </label>
+      <input
+        className="field"
+        placeholder="או הזן כתובת URL"
+        value={url}
+        onChange={(e) => onUrl(e.target.value)}
+      />
     </div>
   )
 }
 
-export default App
+function RevealBar({
+  label,
+  votes,
+  total,
+  isCorrect,
+  fillClass,
+}: {
+  label: string
+  votes: number
+  total: number
+  isCorrect: boolean
+  fillClass: string
+}) {
+  const pct = total > 0 ? Math.round((votes / total) * 100) : 0
+  return (
+    <div className={`reveal-bar-wrap ${isCorrect ? 'correct-story' : 'wrong-story'}`}>
+      <div className="reveal-bar-head">
+        <span>
+          {label} {isCorrect ? '✓ נכון!' : ''}
+        </span>
+        <span>
+          {votes} ({pct}%)
+        </span>
+      </div>
+      <div className="reveal-bar-track">
+        <div className={`reveal-bar-fill ${fillClass}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function Leaderboard({ entries, myDeviceId }: { entries: ScoreEntry[]; myDeviceId?: string }) {
+  return (
+    <div className="board-list">
+      {entries.map((e, i) => (
+        <div
+          key={e.deviceId}
+          className={[
+            'board-row',
+            e.deviceId === myDeviceId ? 'me' : '',
+            i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <span className="rank">
+            {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+          </span>
+          <span className="pname">{e.name}</span>
+          <span className="score">{e.score}</span>
+        </div>
+      ))}
+      {entries.length === 0 && <p className="muted">לא נרשמו הצבעות עדיין</p>}
+    </div>
+  )
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const params = new URLSearchParams(location.search)
+  const modeParam = params.get('mode')
+  const isHost = modeParam !== 'player' && modeParam !== 'voter'
+  const urlSession = params.get('session')?.toUpperCase()
+
+  const [deviceId] = useState(getDeviceId)
+  const [sessionCode] = useState(() => urlSession ?? createCode())
+  const [state, setState] = useState<HostState>(() => makeInitialState(sessionCode))
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [statusMsg, setStatusMsg] = useState('')
+
+  // Player-specific
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) ?? '')
+  const [nameInput, setNameInput] = useState('')
+  const [joined, setJoined] = useState(false)
+  const [myVote, setMyVote] = useState<0 | 1 | null>(null)
+
+  // Host-specific
+  const [showSetup, setShowSetup] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  // ── Load session ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    void (async () => {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/session/${sessionCode}`)
+        if (res.status === 404 && isHost) {
+          const created = await api<SessionResponse>('/api/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionCode, state: makeInitialState(sessionCode) }),
+          })
+          setState(created.state)
+        } else if (res.ok) {
+          setState(((await res.json()) as SessionResponse).state)
+        } else {
+          setError('לא נמצא המשחק. בדוק את הקוד.')
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'שגיאה בטעינה')
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [sessionCode, isHost])
+
+  // ── Poll for players ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isHost) return
+    const id = setInterval(async () => {
+      try {
+        const data = await api<SessionResponse>(`/api/session/${sessionCode}`)
+        setState(data.state)
+      } catch {
+        // keep showing current state
+      }
+    }, 2000)
+    return () => clearInterval(id)
+  }, [isHost, sessionCode])
+
+  // Reset vote on round change
+  useEffect(() => {
+    setMyVote(null)
+  }, [state.currentRoundIndex])
+
+  const currentRound = state.rounds[state.currentRoundIndex] ?? state.rounds[0]
+  const roundVotes = state.votes.filter((v) => v.roundId === currentRound?.id)
+  const leaderboard = useMemo(
+    () => computeLeaderboard(state.rounds, state.votes),
+    [state.rounds, state.votes],
+  )
+
+  // ── Host helpers ──────────────────────────────────────────────────────────
+  const persist = async (next: HostState) => {
+    setState(next)
+    const r = await api<SessionResponse>(`/api/session/${next.sessionCode}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    })
+    setState(r.state)
+    return r.state
+  }
+
+  const updateRound = (id: string, patch: Partial<GameRound>) =>
+    persist({ ...state, rounds: state.rounds.map((r) => (r.id === id ? { ...r, ...patch } : r)) })
+
+  const uploadVideo = async (roundId: string, field: 'video1' | 'video2', file: File) => {
+    setStatusMsg('מעלה סרטון...')
+    try {
+      const r = await api<{ state: HostState }>(
+        `/api/session/${sessionCode}/upload/${roundId}?filename=${encodeURIComponent(file.name)}&field=${field}`,
+        { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file },
+      )
+      setState(r.state)
+      setStatusMsg('✓ הסרטון עלה בהצלחה')
+      setTimeout(() => setStatusMsg(''), 2500)
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : 'שגיאה בהעלאה')
+    }
+  }
+
+  const addRound = () =>
+    persist({ ...state, rounds: [...state.rounds, makeRound(state.rounds.length)] })
+
+  const removeRound = (id: string) => {
+    const next = state.rounds.filter((r) => r.id !== id)
+    if (!next.length) return
+    persist({
+      ...state,
+      rounds: next,
+      currentRoundIndex: Math.min(state.currentRoundIndex, next.length - 1),
+    })
+  }
+
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(joinUrl(sessionCode))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  // ── Player helpers ────────────────────────────────────────────────────────
+  const joinGame = async () => {
+    const name = nameInput.trim()
+    if (!name) return
+    try {
+      await api<SessionResponse>(`/api/session/${sessionCode}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, name }),
+      })
+      localStorage.setItem(NAME_KEY, name)
+      setPlayerName(name)
+      setJoined(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'שגיאה בהצטרפות')
+    }
+  }
+
+  const submitVote = async (storyIndex: 0 | 1) => {
+    if (!currentRound || !state.votingOpen) return
+    setMyVote(storyIndex)
+    try {
+      await api<SessionResponse>(`/api/session/${sessionCode}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roundId: currentRound.id, storyIndex, deviceId, voterName: playerName }),
+      })
+    } catch {
+      // vote will be retried on next poll
+    }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="shell">
+        <div className="center-screen">
+          <div className="spinner" />
+          <p>טוענים את המשחק...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ══════════════════════════════ HOST SCREEN ═══════════════════════════════
+  if (isHost) {
+    return (
+      <div className="shell">
+        <div className="orb orb-1" />
+        <div className="orb orb-2" />
+        <div className="host-shell">
+          {/* Header */}
+          <header className="host-header">
+            <div>
+              <p className="eyebrow">מארח</p>
+              <h1>{state.eventName}</h1>
+            </div>
+            <div className="header-right">
+              <span className="phase-badge">{phaseLabel(state.phase)}</span>
+              {statusMsg && <span className="status-msg">{statusMsg}</span>}
+              <button className="ghost-btn" onClick={() => setShowSetup((s) => !s)}>
+                {showSetup ? '✕ סגור עריכה' : '⚙ עריכת משחק'}
+              </button>
+            </div>
+          </header>
+
+          {/* Setup editor (collapsible) */}
+          {showSetup && (
+            <section className="setup-panel panel">
+              <div className="setup-header">
+                <h2>הגדרות משחק</h2>
+                <button className="add-btn" onClick={() => void addRound()}>
+                  + הוסף שאלה
+                </button>
+              </div>
+              <div className="field-row">
+                <label>שם האירוע</label>
+                <input
+                  className="field"
+                  value={state.eventName}
+                  onChange={(e) => void persist({ ...state, eventName: e.target.value })}
+                />
+              </div>
+
+              {state.rounds.map((round) => (
+                <div
+                  key={round.id}
+                  className="round-editor panel"
+                  style={{ '--accent': round.accent } as React.CSSProperties}
+                >
+                  <div className="round-editor-head">
+                    <input
+                      className="field round-title-input"
+                      value={round.title}
+                      onChange={(e) => void updateRound(round.id, { title: e.target.value })}
+                    />
+                    <button className="danger-btn" onClick={() => void removeRound(round.id)}>
+                      ✕
+                    </button>
+                  </div>
+
+                  <textarea
+                    className="field"
+                    value={round.prompt}
+                    rows={2}
+                    onChange={(e) => void updateRound(round.id, { prompt: e.target.value })}
+                  />
+
+                  <div className="story-slots">
+                    <VideoSlot
+                      label="סיפור 1"
+                      colorClass="slot-story-1"
+                      url={round.video1Url}
+                      name={round.video1Name}
+                      onUrl={(url) => void updateRound(round.id, { video1Url: url, video1Name: url })}
+                      onFile={(f) => void uploadVideo(round.id, 'video1', f)}
+                    />
+                    <VideoSlot
+                      label="סיפור 2"
+                      colorClass="slot-story-2"
+                      url={round.video2Url}
+                      name={round.video2Name}
+                      onUrl={(url) => void updateRound(round.id, { video2Url: url, video2Name: url })}
+                      onFile={(f) => void uploadVideo(round.id, 'video2', f)}
+                    />
+                  </div>
+
+                  <div className="correct-pick">
+                    <span>הסיפור האמיתי:</span>
+                    <button
+                      className={`story-tag ${round.correctStory === 1 ? 'story-1-active' : ''}`}
+                      onClick={() =>
+                        void updateRound(round.id, {
+                          correctStory: round.correctStory === 1 ? null : 1,
+                        })
+                      }
+                    >
+                      סיפור 1
+                    </button>
+                    <button
+                      className={`story-tag ${round.correctStory === 2 ? 'story-2-active' : ''}`}
+                      onClick={() =>
+                        void updateRound(round.id, {
+                          correctStory: round.correctStory === 2 ? null : 2,
+                        })
+                      }
+                    >
+                      סיפור 2
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
+
+          {/* PHASE: setup */}
+          {state.phase === 'setup' && (
+            <section className="panel info-panel">
+              <div>
+                <h2>המשחק מוכן להפעלה</h2>
+                <p className="muted">
+                  {state.rounds.length} שאלות •{' '}
+                  {state.rounds.filter((r) => r.correctStory !== null).length} עם תשובה מוגדרת
+                </p>
+              </div>
+              <button
+                className="primary-btn"
+                onClick={() => void persist({ ...state, phase: 'lobby' })}
+              >
+                צור לובי →
+              </button>
+            </section>
+          )}
+
+          {/* PHASE: lobby */}
+          {state.phase === 'lobby' && (
+            <section className="panel">
+              <div className="lobby-grid">
+                <div className="qr-section">
+                  <img src={qrUrl(sessionCode)} alt="QR להצטרפות" className="qr-img" />
+                  <div className="session-code">{sessionCode}</div>
+                  <button className="ghost-btn" onClick={() => void copyLink()}>
+                    {copied ? '✓ הועתק' : 'העתק קישור'}
+                  </button>
+                </div>
+                <div className="players-section">
+                  <h3>שחקנים שהצטרפו ({state.players.length})</h3>
+                  <div className="players-list">
+                    {state.players.length === 0 ? (
+                      <p className="muted">ממתינים לשחקנים...</p>
+                    ) : (
+                      state.players.map((p) => (
+                        <div key={p.deviceId} className="player-chip">
+                          {p.name}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <button
+                    className="primary-btn"
+                    disabled={state.players.length === 0}
+                    onClick={() =>
+                      void persist({
+                        ...state,
+                        phase: 'round',
+                        currentRoundIndex: 0,
+                        votingOpen: false,
+                      })
+                    }
+                  >
+                    התחל משחק ({state.players.length} שחקנים)
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* PHASE: round */}
+          {state.phase === 'round' && currentRound && (
+            <section
+              className="panel round-panel"
+              style={{ '--accent': currentRound.accent } as React.CSSProperties}
+            >
+              <div className="round-header">
+                <div>
+                  <span className="round-num">
+                    שאלה {state.currentRoundIndex + 1} / {state.rounds.length}
+                  </span>
+                  <h2>{currentRound.title}</h2>
+                  <p className="prompt">{currentRound.prompt}</p>
+                </div>
+                <div className="vote-count-badge">
+                  <span>{roundVotes.length}</span>
+                  <small>הצבעות</small>
+                </div>
+              </div>
+
+              <div className="videos-grid">
+                <div className="video-block">
+                  <div className="video-label story-1-label">סיפור 1</div>
+                  {currentRound.video1Url ? (
+                    <video className="video-player" controls src={currentRound.video1Url} />
+                  ) : (
+                    <div className="video-empty">אין סרטון</div>
+                  )}
+                </div>
+                <div className="video-block">
+                  <div className="video-label story-2-label">סיפור 2</div>
+                  {currentRound.video2Url ? (
+                    <video className="video-player" controls src={currentRound.video2Url} />
+                  ) : (
+                    <div className="video-empty">אין סרטון</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="round-controls">
+                {!state.votingOpen ? (
+                  <button
+                    className="primary-btn"
+                    onClick={() => void persist({ ...state, votingOpen: true })}
+                  >
+                    פתח הצבעה
+                  </button>
+                ) : (
+                  <button
+                    className="secondary-btn"
+                    onClick={() => void persist({ ...state, votingOpen: false })}
+                  >
+                    סגור הצבעה
+                  </button>
+                )}
+                <button
+                  className="reveal-btn"
+                  onClick={() => void persist({ ...state, phase: 'reveal', votingOpen: false })}
+                >
+                  חשוף תשובה →
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* PHASE: reveal */}
+          {state.phase === 'reveal' && currentRound && (
+            <section className="panel reveal-panel">
+              <div>
+                <span className="round-num">
+                  שאלה {state.currentRoundIndex + 1} — תוצאות
+                </span>
+                <h2>{currentRound.prompt}</h2>
+              </div>
+
+              <div className="reveal-bars">
+                <RevealBar
+                  label="סיפור 1"
+                  votes={roundVotes.filter((v) => v.storyIndex === 0).length}
+                  total={roundVotes.length}
+                  isCorrect={currentRound.correctStory === 1}
+                  fillClass="fill-story-1"
+                />
+                <RevealBar
+                  label="סיפור 2"
+                  votes={roundVotes.filter((v) => v.storyIndex === 1).length}
+                  total={roundVotes.length}
+                  isCorrect={currentRound.correctStory === 2}
+                  fillClass="fill-story-2"
+                />
+              </div>
+
+              <div className="interim-board">
+                <h3>ניקוד עכשיו</h3>
+                <Leaderboard entries={leaderboard.slice(0, 5)} />
+              </div>
+
+              <div className="round-controls">
+                {state.currentRoundIndex < state.rounds.length - 1 ? (
+                  <button
+                    className="primary-btn"
+                    onClick={() =>
+                      void persist({
+                        ...state,
+                        phase: 'round',
+                        currentRoundIndex: state.currentRoundIndex + 1,
+                        votingOpen: false,
+                      })
+                    }
+                  >
+                    שאלה הבאה →
+                  </button>
+                ) : (
+                  <button
+                    className="primary-btn"
+                    onClick={() => void persist({ ...state, phase: 'final', votingOpen: false })}
+                  >
+                    לוח תוצאות סופי 🏆
+                  </button>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* PHASE: final */}
+          {state.phase === 'final' && (
+            <section className="panel final-panel">
+              <h2>🏆 לוח תוצאות סופי</h2>
+              <Leaderboard entries={leaderboard} />
+              <button
+                className="ghost-btn"
+                onClick={() =>
+                  void persist({
+                    ...state,
+                    phase: 'setup',
+                    currentRoundIndex: 0,
+                    votingOpen: false,
+                    votes: [],
+                    players: [],
+                  })
+                }
+              >
+                משחק חדש
+              </button>
+            </section>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ══════════════════════════════ PLAYER SCREEN ═════════════════════════════
+  return (
+    <div className="shell">
+      <div className="orb orb-1" />
+      <div className="orb orb-2" />
+      <div className="player-shell">
+        {/* JOIN */}
+        {!joined && (
+          <section className="panel join-panel">
+            <p className="eyebrow">🎉 משחק יום הולדת</p>
+            <h1>{state.eventName}</h1>
+            <p className="muted">הזן את שמך והצטרף למשחק</p>
+            {error && <p className="error-msg">{error}</p>}
+            <input
+              className="field big-field"
+              placeholder="השם שלך"
+              value={nameInput}
+              autoFocus
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void joinGame()}
+            />
+            <button
+              className="primary-btn big-btn"
+              disabled={!nameInput.trim()}
+              onClick={() => void joinGame()}
+            >
+              הצטרף למשחק!
+            </button>
+          </section>
+        )}
+
+        {/* LOBBY */}
+        {joined && state.phase === 'lobby' && (
+          <section className="panel player-waiting">
+            <p className="eyebrow">שלום, {playerName}!</p>
+            <h2>ממתינים שהמשחק יתחיל...</h2>
+            <div className="pulse-ring" />
+            <p className="muted">{state.players.length} שחקנים הצטרפו</p>
+          </section>
+        )}
+
+        {/* ROUND */}
+        {joined && state.phase === 'round' && (
+          <section className="panel player-vote">
+            {!state.votingOpen ? (
+              <div className="waiting-msg">
+                <div className="pulse-ring" />
+                <h2>👀 צפו בסרטונים על המסך</h2>
+                <p className="muted">ההצבעה תיפתח בקרוב...</p>
+              </div>
+            ) : (
+              <>
+                <p className="eyebrow">שאלה {state.currentRoundIndex + 1}</p>
+                <h2>{currentRound?.prompt}</h2>
+                <p className="vote-instruction">מה הסיפור האמיתי?</p>
+                <div className="vote-buttons">
+                  <button
+                    className={`vote-btn story-1-btn ${myVote === 0 ? 'selected' : ''}`}
+                    onClick={() => void submitVote(0)}
+                  >
+                    <span className="story-num">1</span>
+                    <span>סיפור 1</span>
+                  </button>
+                  <button
+                    className={`vote-btn story-2-btn ${myVote === 1 ? 'selected' : ''}`}
+                    onClick={() => void submitVote(1)}
+                  >
+                    <span className="story-num">2</span>
+                    <span>סיפור 2</span>
+                  </button>
+                </div>
+                {myVote !== null && (
+                  <p className="voted-msg">✓ הצבעת! אפשר לשנות עד שהמארח יסגור.</p>
+                )}
+              </>
+            )}
+          </section>
+        )}
+
+        {/* REVEAL */}
+        {joined && state.phase === 'reveal' && currentRound && (
+          <section className="panel player-reveal">
+            {(() => {
+              const myVoteRecord = state.votes.find(
+                (v) => v.roundId === currentRound.id && v.deviceId === deviceId,
+              )
+              const correct =
+                currentRound.correctStory !== null && myVoteRecord
+                  ? myVoteRecord.storyIndex === currentRound.correctStory - 1
+                  : null
+              const myScore = leaderboard.find((e) => e.deviceId === deviceId)?.score ?? 0
+              return (
+                <>
+                  <div
+                    className={`result-badge ${correct === true ? 'correct' : correct === false ? 'wrong' : 'neutral'}`}
+                  >
+                    {correct === true ? '✓ נכון! +1000' : correct === false ? '✗ טעות' : '⏳'}
+                  </div>
+                  <p className="correct-answer-label">
+                    הסיפור הנכון:{' '}
+                    <strong>סיפור {currentRound.correctStory ?? '?'}</strong>
+                  </p>
+                  <div className="my-score-row">
+                    <span>הניקוד שלך:</span>
+                    <strong>{myScore}</strong>
+                  </div>
+                  <Leaderboard entries={leaderboard.slice(0, 3)} myDeviceId={deviceId} />
+                </>
+              )
+            })()}
+          </section>
+        )}
+
+        {/* FINAL */}
+        {joined && state.phase === 'final' && (
+          <section className="panel player-final">
+            <h2>🏆 המשחק נגמר!</h2>
+            {(() => {
+              const myRank = leaderboard.findIndex((e) => e.deviceId === deviceId) + 1
+              const myScore = leaderboard.find((e) => e.deviceId === deviceId)?.score ?? 0
+              return (
+                <>
+                  <div className="my-final-result">
+                    <div className="my-rank">#{myRank || '?'}</div>
+                    <div className="my-name">{playerName}</div>
+                    <div className="my-score-big">{myScore} נקודות</div>
+                  </div>
+                  <Leaderboard entries={leaderboard} myDeviceId={deviceId} />
+                </>
+              )
+            })()}
+          </section>
+        )}
+
+        {/* SETUP (waiting for host to open lobby) */}
+        {joined && state.phase === 'setup' && (
+          <section className="panel player-waiting">
+            <h2>המשחק עוד לא התחיל</h2>
+            <p className="muted">המארח מכין את המשחק...</p>
+          </section>
+        )}
+      </div>
+    </div>
+  )
+}

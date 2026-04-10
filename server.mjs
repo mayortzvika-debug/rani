@@ -99,161 +99,144 @@ createServer(async (request, response) => {
   const pathname = decodeURIComponent(url.pathname)
 
   if (request.method === 'GET' && pathname === '/health') {
-    json(response, 200, {
-      ok: true,
-      storageDir,
-      updatedAt: new Date().toISOString(),
-    })
+    json(response, 200, { ok: true, storageDir, updatedAt: new Date().toISOString() })
     return
   }
 
-  if (request.method === 'GET' && pathname.startsWith('/api/session/')) {
+  // GET session
+  if (request.method === 'GET' && pathname.startsWith('/api/session/') && pathname.split('/').length === 4) {
     const sessionCode = pathname.split('/')[3]
     const session = getSession(sessionCode)
-
-    if (!session) {
-      text(response, 404, 'Session not found')
-      return
-    }
-
+    if (!session) { text(response, 404, 'Session not found'); return }
     json(response, 200, toSessionResponse(session))
     return
   }
 
+  // POST /api/session — create
   if (request.method === 'POST' && pathname === '/api/session') {
     const body = JSON.parse(String(await readBody(request) || '{}'))
     const sessionCode = (body.sessionCode || '').toUpperCase()
-
-    if (!sessionCode || !body.state) {
-      text(response, 400, 'Missing session payload')
-      return
-    }
-
+    if (!sessionCode || !body.state) { text(response, 400, 'Missing session payload'); return }
     const created = setSession(sessionCode, { ...body.state, sessionCode })
     json(response, 201, toSessionResponse(created))
     return
   }
 
-  if (request.method === 'PUT' && pathname.startsWith('/api/session/')) {
-    const parts = pathname.split('/')
-    const sessionCode = parts[3]
-
-    if (parts.length !== 4) {
-      text(response, 404, 'Unknown API route')
-      return
-    }
-
+  // PUT /api/session/:code — update full state
+  if (request.method === 'PUT' && pathname.startsWith('/api/session/') && pathname.split('/').length === 4) {
+    const sessionCode = pathname.split('/')[3]
     const body = JSON.parse(String(await readBody(request) || '{}'))
     const saved = setSession(sessionCode, { ...body, sessionCode })
     json(response, 200, toSessionResponse(saved))
     return
   }
 
-  if (request.method === 'POST' && pathname.startsWith('/api/session/') && pathname.includes('/vote')) {
+  // POST /api/session/:code/join — register player
+  if (request.method === 'POST' && pathname.startsWith('/api/session/') && pathname.endsWith('/join')) {
     const sessionCode = pathname.split('/')[3]
     const session = getSession(sessionCode)
-
-    if (!session) {
-      text(response, 404, 'Session not found')
-      return
-    }
+    if (!session) { text(response, 404, 'Session not found'); return }
 
     const body = JSON.parse(String(await readBody(request) || '{}'))
-    const nextVotes = session.state.votes.filter((vote) => !(vote.roundId === body.roundId && vote.deviceId === body.deviceId))
+    const players = Array.isArray(session.state.players) ? [...session.state.players] : []
+    const existingIdx = players.findIndex((p) => p.deviceId === body.deviceId)
+
+    if (existingIdx >= 0) {
+      players[existingIdx] = { ...players[existingIdx], name: body.name }
+    } else {
+      players.push({ deviceId: body.deviceId, name: body.name, joinedAt: new Date().toISOString() })
+    }
+
+    const saved = setSession(sessionCode, { ...session.state, players })
+    json(response, 200, toSessionResponse(saved))
+    return
+  }
+
+  // POST /api/session/:code/vote — record vote
+  if (request.method === 'POST' && pathname.startsWith('/api/session/') && pathname.endsWith('/vote')) {
+    const sessionCode = pathname.split('/')[3]
+    const session = getSession(sessionCode)
+    if (!session) { text(response, 404, 'Session not found'); return }
+
+    const body = JSON.parse(String(await readBody(request) || '{}'))
+    const nextVotes = session.state.votes.filter(
+      (vote) => !(vote.roundId === body.roundId && vote.deviceId === body.deviceId),
+    )
     nextVotes.push({
       id: `vote-${Date.now()}`,
       roundId: body.roundId,
-      choiceIndex: body.choiceIndex,
+      storyIndex: body.storyIndex,   // 0 = Story 1, 1 = Story 2
       deviceId: body.deviceId,
       voterName: body.voterName,
       createdAt: new Date().toISOString(),
     })
 
-    const saved = setSession(sessionCode, {
-      ...session.state,
-      votes: nextVotes,
-    })
-
+    const saved = setSession(sessionCode, { ...session.state, votes: nextVotes })
     json(response, 200, toSessionResponse(saved))
     return
   }
 
+  // DELETE /api/session/:code/votes/:roundId — clear round votes
   if (request.method === 'DELETE' && pathname.startsWith('/api/session/') && pathname.includes('/votes/')) {
     const parts = pathname.split('/')
     const sessionCode = parts[3]
     const roundId = parts[5]
     const session = getSession(sessionCode)
-
-    if (!session) {
-      text(response, 404, 'Session not found')
-      return
-    }
+    if (!session) { text(response, 404, 'Session not found'); return }
 
     const saved = setSession(sessionCode, {
       ...session.state,
-      votingRoundId: session.state.votingRoundId === roundId ? null : session.state.votingRoundId,
       votes: session.state.votes.filter((vote) => vote.roundId !== roundId),
     })
-
     json(response, 200, toSessionResponse(saved))
     return
   }
 
+  // POST /api/session/:code/upload/:roundId — upload video
+  // Query params: ?filename=name.mp4&field=video1|video2
   if (request.method === 'POST' && pathname.startsWith('/api/session/') && pathname.includes('/upload/')) {
     const parts = pathname.split('/')
     const sessionCode = parts[3]
     const roundId = parts[5]
     const session = getSession(sessionCode)
-
-    if (!session) {
-      text(response, 404, 'Session not found')
-      return
-    }
+    if (!session) { text(response, 404, 'Session not found'); return }
 
     const safeName = basename(url.searchParams.get('filename') || `${roundId}.mp4`).replace(/[^\w.\-() ]/g, '_')
+    const field = url.searchParams.get('field') === 'video2' ? 'video2' : 'video1'
     const sessionUploadDir = join(uploadsDir, sessionCode)
     mkdirSync(sessionUploadDir, { recursive: true })
-    const fileName = `${roundId}-${Date.now()}${extname(safeName) || '.mp4'}`
+    const fileName = `${roundId}-${field}-${Date.now()}${extname(safeName) || '.mp4'}`
     const targetPath = join(sessionUploadDir, fileName)
-    const body = await readBody(request)
-    writeFileSync(targetPath, body)
+    writeFileSync(targetPath, await readBody(request))
 
     const videoUrl = `/uploads/${sessionCode}/${fileName}`
+    const urlKey = field === 'video2' ? 'video2Url' : 'video1Url'
+    const nameKey = field === 'video2' ? 'video2Name' : 'video1Name'
+
     const saved = setSession(sessionCode, {
       ...session.state,
       rounds: session.state.rounds.map((round) =>
-        round.id === roundId ? { ...round, videoUrl, videoName: safeName } : round,
+        round.id === roundId ? { ...round, [urlKey]: videoUrl, [nameKey]: safeName } : round,
       ),
     })
-
     json(response, 200, toSessionResponse(saved))
     return
   }
 
+  // Serve uploaded files
   if (pathname.startsWith('/uploads/')) {
     const filePath = join(storageDir, pathname.replace(/^\//, ''))
-    if (existsSync(filePath)) {
-      sendFile(response, filePath)
-      return
-    }
+    if (existsSync(filePath)) { sendFile(response, filePath); return }
   }
 
+  // Serve built frontend assets
   const assetPath = pathname === '/' ? join(distDir, 'index.html') : join(distDir, pathname.replace(/^\//, ''))
-  if (existsSync(assetPath) && !pathname.endsWith('/')) {
-    sendFile(response, assetPath)
-    return
-  }
+  if (existsSync(assetPath) && !pathname.endsWith('/')) { sendFile(response, assetPath); return }
 
   const publicPath = join(publicDir, pathname.replace(/^\//, ''))
-  if (existsSync(publicPath) && !pathname.endsWith('/')) {
-    sendFile(response, publicPath)
-    return
-  }
+  if (existsSync(publicPath) && !pathname.endsWith('/')) { sendFile(response, publicPath); return }
 
-  if (existsSync(join(distDir, 'index.html'))) {
-    sendFile(response, join(distDir, 'index.html'))
-    return
-  }
+  if (existsSync(join(distDir, 'index.html'))) { sendFile(response, join(distDir, 'index.html')); return }
 
   text(response, 404, 'Not found')
 }).listen(port, '0.0.0.0', () => {
