@@ -8,11 +8,12 @@ type GameRound = {
   title: string
   prompt: string
   accent: string
-  video1Url: string
-  video1Name: string
-  video2Url: string
-  video2Name: string
+  storiesVideoUrl: string   // סרטון אחד עם שני הסיפורים
+  storiesVideoName: string
+  revealVideoUrl: string    // סרטון חשיפה — מראה מה היה האמת
+  revealVideoName: string
   correctStory: 1 | 2 | null
+  votingOpenedAt: string | null  // לחישוב בונוס מהירות
 }
 
 type PlayerRecord = {
@@ -76,11 +77,12 @@ function makeRound(index: number): GameRound {
     title: `שאלה ${index + 1}`,
     prompt: 'מה הסיפור האמיתי?',
     accent: ACCENTS[index % ACCENTS.length],
-    video1Url: '',
-    video1Name: '',
-    video2Url: '',
-    video2Name: '',
+    storiesVideoUrl: '',
+    storiesVideoName: '',
+    revealVideoUrl: '',
+    revealVideoName: '',
     correctStory: null,
+    votingOpenedAt: null,
   }
 }
 
@@ -115,6 +117,16 @@ function phaseLabel(phase: GamePhase): string {
   return { setup: 'הגדרה', lobby: 'לובי', round: 'שאלה', reveal: 'חשיפה', final: 'סיום' }[phase]
 }
 
+const SPEED_WINDOW_MS = 20_000  // 20 שניות — חלון הבונוס
+const BASE_POINTS = 1000
+const MAX_SPEED_BONUS = 500
+
+function speedBonus(votedAt: string, openedAt: string | null): number {
+  if (!openedAt) return 0
+  const elapsed = new Date(votedAt).getTime() - new Date(openedAt).getTime()
+  return Math.max(0, Math.round(MAX_SPEED_BONUS * Math.max(0, 1 - elapsed / SPEED_WINDOW_MS)))
+}
+
 function computeLeaderboard(rounds: GameRound[], votes: VoteRecord[]): ScoreEntry[] {
   const map = new Map<string, ScoreEntry>()
   for (const round of rounds) {
@@ -123,7 +135,9 @@ function computeLeaderboard(rounds: GameRound[], votes: VoteRecord[]): ScoreEntr
     for (const v of votes.filter((v) => v.roundId === round.id)) {
       if (!map.has(v.deviceId))
         map.set(v.deviceId, { deviceId: v.deviceId, name: v.voterName, score: 0 })
-      if (v.storyIndex === correctIdx) map.get(v.deviceId)!.score += 1000
+      if (v.storyIndex === correctIdx) {
+        map.get(v.deviceId)!.score += BASE_POINTS + speedBonus(v.createdAt, round.votingOpenedAt)
+      }
     }
   }
   return [...map.values()].sort((a, b) => b.score - a.score)
@@ -322,7 +336,7 @@ export default function App() {
   const updateRound = (id: string, patch: Partial<GameRound>) =>
     persist({ ...state, rounds: state.rounds.map((r) => (r.id === id ? { ...r, ...patch } : r)) })
 
-  const uploadVideo = async (roundId: string, field: 'video1' | 'video2', file: File) => {
+  const uploadVideo = async (roundId: string, field: 'storiesVideo' | 'revealVideo', file: File) => {
     setStatusMsg('מעלה סרטון...')
     try {
       const r = await api<{ state: HostState }>(
@@ -466,20 +480,20 @@ export default function App() {
 
                   <div className="story-slots">
                     <VideoSlot
-                      label="סיפור 1"
+                      label="🎬 סרטון שאלה (שני הסיפורים)"
                       colorClass="slot-story-1"
-                      url={round.video1Url}
-                      name={round.video1Name}
-                      onUrl={(url) => void updateRound(round.id, { video1Url: url, video1Name: url })}
-                      onFile={(f) => void uploadVideo(round.id, 'video1', f)}
+                      url={round.storiesVideoUrl}
+                      name={round.storiesVideoName}
+                      onUrl={(url) => void updateRound(round.id, { storiesVideoUrl: url, storiesVideoName: url })}
+                      onFile={(f) => void uploadVideo(round.id, 'storiesVideo', f)}
                     />
                     <VideoSlot
-                      label="סיפור 2"
+                      label="🔍 סרטון חשיפה (מה האמת)"
                       colorClass="slot-story-2"
-                      url={round.video2Url}
-                      name={round.video2Name}
-                      onUrl={(url) => void updateRound(round.id, { video2Url: url, video2Name: url })}
-                      onFile={(f) => void uploadVideo(round.id, 'video2', f)}
+                      url={round.revealVideoUrl}
+                      name={round.revealVideoName}
+                      onUrl={(url) => void updateRound(round.id, { revealVideoUrl: url, revealVideoName: url })}
+                      onFile={(f) => void uploadVideo(round.id, 'revealVideo', f)}
                     />
                   </div>
 
@@ -593,30 +607,28 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="videos-grid">
-                <div className="video-block">
-                  <div className="video-label story-1-label">סיפור 1</div>
-                  {currentRound.video1Url ? (
-                    <video className="video-player" controls src={currentRound.video1Url} />
-                  ) : (
-                    <div className="video-empty">אין סרטון</div>
-                  )}
-                </div>
-                <div className="video-block">
-                  <div className="video-label story-2-label">סיפור 2</div>
-                  {currentRound.video2Url ? (
-                    <video className="video-player" controls src={currentRound.video2Url} />
-                  ) : (
-                    <div className="video-empty">אין סרטון</div>
-                  )}
-                </div>
+              <div className="single-video">
+                {currentRound.storiesVideoUrl ? (
+                  <video className="video-player-full" controls src={currentRound.storiesVideoUrl} />
+                ) : (
+                  <div className="video-empty">אין סרטון שאלה</div>
+                )}
               </div>
 
               <div className="round-controls">
                 {!state.votingOpen ? (
                   <button
                     className="primary-btn"
-                    onClick={() => void persist({ ...state, votingOpen: true })}
+                    onClick={() => {
+                      const now = new Date().toISOString()
+                      void persist({
+                        ...state,
+                        votingOpen: true,
+                        rounds: state.rounds.map((r) =>
+                          r.id === currentRound.id ? { ...r, votingOpenedAt: now } : r,
+                        ),
+                      })
+                    }}
                   >
                     פתח הצבעה
                   </button>
@@ -647,6 +659,12 @@ export default function App() {
                 </span>
                 <h2>{currentRound.prompt}</h2>
               </div>
+
+              {currentRound.revealVideoUrl && (
+                <div className="single-video">
+                  <video className="video-player-full" controls autoPlay src={currentRound.revealVideoUrl} />
+                </div>
+              )}
 
               <div className="reveal-bars">
                 <RevealBar
@@ -814,21 +832,32 @@ export default function App() {
                 currentRound.correctStory !== null && myVoteRecord
                   ? myVoteRecord.storyIndex === currentRound.correctStory - 1
                   : null
-              const myScore = leaderboard.find((e) => e.deviceId === deviceId)?.score ?? 0
+              const bonus = correct && myVoteRecord
+                ? speedBonus(myVoteRecord.createdAt, currentRound.votingOpenedAt)
+                : 0
+              const roundPoints = correct ? BASE_POINTS + bonus : 0
+              const myTotalScore = leaderboard.find((e) => e.deviceId === deviceId)?.score ?? 0
               return (
                 <>
                   <div
                     className={`result-badge ${correct === true ? 'correct' : correct === false ? 'wrong' : 'neutral'}`}
                   >
-                    {correct === true ? '✓ נכון! +1000' : correct === false ? '✗ טעות' : '⏳'}
+                    {correct === true
+                      ? `✓ נכון! +${roundPoints}`
+                      : correct === false
+                        ? '✗ טעות'
+                        : '⏳'}
                   </div>
+                  {correct === true && bonus > 0 && (
+                    <p className="speed-bonus-label">⚡ בונוס מהירות: +{bonus}</p>
+                  )}
                   <p className="correct-answer-label">
                     הסיפור הנכון:{' '}
                     <strong>סיפור {currentRound.correctStory ?? '?'}</strong>
                   </p>
                   <div className="my-score-row">
-                    <span>הניקוד שלך:</span>
-                    <strong>{myScore}</strong>
+                    <span>סה״כ ניקוד:</span>
+                    <strong>{myTotalScore}</strong>
                   </div>
                   <Leaderboard entries={leaderboard.slice(0, 3)} myDeviceId={deviceId} />
                 </>

@@ -570,7 +570,8 @@
   border: 1px solid rgba(19, 104, 206, 0.3);
 }
 
-.video-player {
+.video-player,
+.video-player-full {
   width: 100%;
   border-radius: 16px;
   background: rgba(0, 0, 0, 0.4);
@@ -909,6 +910,13 @@
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.45);
+}
+
+.speed-bonus-label {
+  color: #ffe066;
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin: 0;
 }
 
 .correct-answer-label {

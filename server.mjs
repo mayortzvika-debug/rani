@@ -193,7 +193,7 @@ createServer(async (request, response) => {
   }
 
   // POST /api/session/:code/upload/:roundId — upload video
-  // Query params: ?filename=name.mp4&field=video1|video2
+  // Query params: ?filename=name.mp4&field=storiesVideo|revealVideo
   if (request.method === 'POST' && pathname.startsWith('/api/session/') && pathname.includes('/upload/')) {
     const parts = pathname.split('/')
     const sessionCode = parts[3]
@@ -202,7 +202,7 @@ createServer(async (request, response) => {
     if (!session) { text(response, 404, 'Session not found'); return }
 
     const safeName = basename(url.searchParams.get('filename') || `${roundId}.mp4`).replace(/[^\w.\-() ]/g, '_')
-    const field = url.searchParams.get('field') === 'video2' ? 'video2' : 'video1'
+    const field = url.searchParams.get('field') === 'revealVideo' ? 'revealVideo' : 'storiesVideo'
     const sessionUploadDir = join(uploadsDir, sessionCode)
     mkdirSync(sessionUploadDir, { recursive: true })
     const fileName = `${roundId}-${field}-${Date.now()}${extname(safeName) || '.mp4'}`
@@ -210,8 +210,8 @@ createServer(async (request, response) => {
     writeFileSync(targetPath, await readBody(request))
 
     const videoUrl = `/uploads/${sessionCode}/${fileName}`
-    const urlKey = field === 'video2' ? 'video2Url' : 'video1Url'
-    const nameKey = field === 'video2' ? 'video2Name' : 'video1Name'
+    const urlKey = field === 'revealVideo' ? 'revealVideoUrl' : 'storiesVideoUrl'
+    const nameKey = field === 'revealVideo' ? 'revealVideoName' : 'storiesVideoName'
 
     const saved = setSession(sessionCode, {
       ...session.state,
