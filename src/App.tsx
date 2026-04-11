@@ -592,12 +592,23 @@ export default function App() {
                   {state.rounds.filter((r) => r.correctStory !== null).length} עם תשובה מוגדרת
                 </p>
               </div>
-              <button
-                className="primary-btn"
-                onClick={() => void persist({ ...state, phase: 'lobby' })}
-              >
-                צור לובי →
-              </button>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <button
+                  className="primary-btn"
+                  onClick={() => void persist({ ...state, phase: 'lobby' })}
+                >
+                  צור לובי →
+                </button>
+                <button
+                  className="ghost-btn"
+                  onClick={() => {
+                    if (confirm('לאפס ציונים ושחקנים? הסרטונים יישמרו.'))
+                      void persist({ ...state, votes: [], players: [], currentRoundIndex: 0, votingOpen: false })
+                  }}
+                >
+                  🔄 אפס משחק
+                </button>
+              </div>
             </section>
           )}
 
@@ -625,20 +636,31 @@ export default function App() {
                       ))
                     )}
                   </div>
-                  <button
-                    className="primary-btn"
-                    disabled={state.players.length === 0}
-                    onClick={() =>
-                      void persist({
-                        ...state,
-                        phase: 'round',
-                        currentRoundIndex: 0,
-                        votingOpen: false,
-                      })
-                    }
-                  >
-                    התחל משחק ({state.players.length} שחקנים)
-                  </button>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button
+                      className="primary-btn"
+                      disabled={state.players.length === 0}
+                      onClick={() =>
+                        void persist({
+                          ...state,
+                          phase: 'round',
+                          currentRoundIndex: 0,
+                          votingOpen: false,
+                        })
+                      }
+                    >
+                      התחל משחק ({state.players.length} שחקנים)
+                    </button>
+                    <button
+                      className="ghost-btn"
+                      onClick={() => {
+                        if (confirm('לאפס משחק? שחקנים וציונים יימחקו, סרטונים יישמרו.'))
+                          void persist({ ...state, phase: 'setup', votes: [], players: [], currentRoundIndex: 0, votingOpen: false })
+                      }}
+                    >
+                      🔄 אפס משחק
+                    </button>
+                  </div>
                 </div>
               </div>
             </section>
@@ -790,7 +812,7 @@ export default function App() {
                   })
                 }
               >
-                משחק חדש
+                🔄 משחק חדש (הסרטונים נשמרים)
               </button>
             </section>
           )}
