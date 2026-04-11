@@ -55,6 +55,7 @@ type ScoreEntry = { deviceId: string; name: string; score: number }
 
 const DEVICE_KEY = 'birthday-battle-device-id'
 const NAME_KEY = 'birthday-battle-player-name'
+const HOST_SESSION_KEY = 'birthday-battle-host-session'
 const ACCENTS = ['#ff6b6b', '#ffd166', '#06d6a0', '#8a7dff', '#ff9f1c', '#2ec4b6']
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -83,6 +84,40 @@ function makeRound(index: number): GameRound {
     revealVideoName: '',
     correctStory: null,
     votingOpenedAt: null,
+  }
+}
+
+// Migrate sessions saved with old field names (video1Url/video2Url → storiesVideoUrl/revealVideoUrl)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateState(raw: any, sessionCode: string): HostState {
+  const base = makeInitialState(sessionCode)
+  if (!raw || typeof raw !== 'object') return base
+
+  const rounds: GameRound[] = Array.isArray(raw.rounds)
+    ? raw.rounds.map((r: any, i: number) => ({
+        ...makeRound(i),
+        ...r,
+        // migrate old single-video field → storiesVideo
+        storiesVideoUrl: r.storiesVideoUrl ?? r.videoUrl ?? r.video1Url ?? '',
+        storiesVideoName: r.storiesVideoName ?? r.videoName ?? r.video1Name ?? '',
+        // migrate old second video → revealVideo
+        revealVideoUrl: r.revealVideoUrl ?? r.video2Url ?? '',
+        revealVideoName: r.revealVideoName ?? r.video2Name ?? '',
+        correctStory: r.correctStory ?? null,
+        votingOpenedAt: r.votingOpenedAt ?? null,
+      }))
+    : base.rounds
+
+  return {
+    ...base,
+    ...raw,
+    sessionCode,
+    phase: raw.phase ?? 'setup',
+    currentRoundIndex: raw.currentRoundIndex ?? 0,
+    votingOpen: raw.votingOpen ?? false,
+    players: Array.isArray(raw.players) ? raw.players : [],
+    votes: Array.isArray(raw.votes) ? raw.votes : [],
+    rounds,
   }
 }
 
@@ -253,7 +288,21 @@ export default function App() {
   const urlSession = params.get('session')?.toUpperCase()
 
   const [deviceId] = useState(getDeviceId)
-  const [sessionCode] = useState(() => urlSession ?? createCode())
+  const [sessionCode] = useState(() => {
+    if (urlSession) {
+      // URL has a session code — remember it for next visit
+      if (isHost) localStorage.setItem(HOST_SESSION_KEY, urlSession)
+      return urlSession
+    }
+    if (isHost) {
+      // No code in URL — reuse last host session so videos aren't lost
+      const saved = localStorage.getItem(HOST_SESSION_KEY)
+      if (saved) return saved
+    }
+    const next = createCode()
+    if (isHost) localStorage.setItem(HOST_SESSION_KEY, next)
+    return next
+  })
   const [state, setState] = useState<HostState>(() => makeInitialState(sessionCode))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -285,7 +334,8 @@ export default function App() {
           })
           setState(created.state)
         } else if (res.ok) {
-          setState(((await res.json()) as SessionResponse).state)
+          const data = (await res.json()) as SessionResponse
+          setState(migrateState(data.state, sessionCode))
         } else {
           setError('לא נמצא המשחק. בדוק את הקוד.')
         }
@@ -304,7 +354,7 @@ export default function App() {
     const id = setInterval(async () => {
       try {
         const data = await api<SessionResponse>(`/api/session/${sessionCode}`)
-        setState(data.state)
+        setState(migrateState(data.state, sessionCode))
       } catch {
         // keep showing current state
       }
