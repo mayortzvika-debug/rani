@@ -223,9 +223,7 @@
 .game-banner {
   display: block;
   width: 100%;
-  max-height: 220px;
-  object-fit: cover;
-  object-position: center top;
+  height: auto;
   border-radius: 20px;
   margin-bottom: 4px;
 }
@@ -233,10 +231,8 @@
 .join-banner {
   display: block;
   width: 100%;
+  height: auto;
   border-radius: 14px;
-  object-fit: cover;
-  max-height: 140px;
-  object-position: center top;
 }
 
 /* ─── Host Shell ──────────────────────────────────────────────────────────── */

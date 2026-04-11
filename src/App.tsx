@@ -262,8 +262,10 @@ export default function App() {
   // Player-specific
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) ?? '')
   const [nameInput, setNameInput] = useState('')
-  const [joined, setJoined] = useState(false)
+  // joined is persisted — survive page reload
+  const [joined, setJoined] = useState(() => !!localStorage.getItem(NAME_KEY))
   const [myVote, setMyVote] = useState<0 | 1 | null>(null)
+  const [voteError, setVoteError] = useState('')
 
   // Host-specific
   const [showSetup, setShowSetup] = useState(false)
@@ -392,14 +394,17 @@ export default function App() {
   const submitVote = async (storyIndex: 0 | 1) => {
     if (!currentRound || !state.votingOpen) return
     setMyVote(storyIndex)
+    setVoteError('')
     try {
-      await api<SessionResponse>(`/api/session/${sessionCode}/vote`, {
+      const res = await api<SessionResponse>(`/api/session/${sessionCode}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roundId: currentRound.id, storyIndex, deviceId, voterName: playerName }),
       })
-    } catch {
-      // vote will be retried on next poll
+      setState(res.state)
+    } catch (e) {
+      setVoteError(e instanceof Error ? e.message : 'שגיאה בשליחת ההצבעה — נסה שוב')
+      setMyVote(null)
     }
   }
 
@@ -817,7 +822,8 @@ export default function App() {
                     <span>סיפור 2</span>
                   </button>
                 </div>
-                {myVote !== null && (
+                {voteError && <p className="error-msg">{voteError}</p>}
+                {myVote !== null && !voteError && (
                   <p className="voted-msg">✓ הצבעת! אפשר לשנות עד שהמארח יסגור.</p>
                 )}
               </>
