@@ -347,10 +347,8 @@ export default function App() {
     })()
   }, [sessionCode, isHost])
 
-  // ── Poll — players always, host during lobby ──────────────────────────────
+  // ── Poll — always active (host needs live vote counts during round/reveal) ─
   useEffect(() => {
-    // Host polls only in lobby to pick up new players
-    if (isHost && state.phase !== 'lobby') return
     const id = setInterval(async () => {
       try {
         const data = await api<SessionResponse>(`/api/session/${sessionCode}`)
@@ -360,7 +358,7 @@ export default function App() {
       }
     }, 2000)
     return () => clearInterval(id)
-  }, [isHost, sessionCode, state.phase])
+  }, [sessionCode])
 
   // Reset vote on round change
   useEffect(() => {

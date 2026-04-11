@@ -159,15 +159,22 @@ createServer(async (request, response) => {
     if (!session) { text(response, 404, 'Session not found'); return }
 
     const body = JSON.parse(String(await readBody(request) || '{}'))
-    const nextVotes = session.state.votes.filter(
+    console.log(`[vote] session=${sessionCode} round=${body.roundId} story=${body.storyIndex} voter=${body.voterName}`)
+
+    if (body.roundId === undefined || body.storyIndex === undefined) {
+      text(response, 400, 'Missing roundId or storyIndex'); return
+    }
+
+    const votes = Array.isArray(session.state.votes) ? session.state.votes : []
+    const nextVotes = votes.filter(
       (vote) => !(vote.roundId === body.roundId && vote.deviceId === body.deviceId),
     )
     nextVotes.push({
       id: `vote-${Date.now()}`,
       roundId: body.roundId,
-      storyIndex: body.storyIndex,   // 0 = Story 1, 1 = Story 2
+      storyIndex: Number(body.storyIndex),  // 0 = Story 1, 1 = Story 2
       deviceId: body.deviceId,
-      voterName: body.voterName,
+      voterName: body.voterName || 'אורח',
       createdAt: new Date().toISOString(),
     })
 
