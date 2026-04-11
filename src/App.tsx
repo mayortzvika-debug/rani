@@ -309,16 +309,25 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState('')
 
   // Player-specific
-  const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) ?? '')
-  const [nameInput, setNameInput] = useState('')
-  // joined is persisted — survive page reload
-  const [joined, setJoined] = useState(() => !!localStorage.getItem(NAME_KEY))
+  const savedName = localStorage.getItem(NAME_KEY) ?? ''
+  const [playerName, setPlayerName] = useState(savedName)
+  const [nameInput, setNameInput] = useState(savedName)
+  // joined persists across reload (not private mode — that's fine, just enter name again)
+  const [joined, setJoined] = useState(() => !isHost && !!localStorage.getItem(NAME_KEY))
   const [myVote, setMyVote] = useState<0 | 1 | null>(null)
   const [voteError, setVoteError] = useState('')
 
   // Host-specific
   const [showSetup, setShowSetup] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // ── Always put mode+session in the URL so host can bookmark/share it ─────
+  useEffect(() => {
+    const p = new URLSearchParams(location.search)
+    p.set('mode', isHost ? 'host' : 'player')
+    p.set('session', sessionCode)
+    window.history.replaceState({}, '', `${location.pathname}?${p.toString()}`)
+  }, [sessionCode, isHost])
 
   // ── Load session ──────────────────────────────────────────────────────────
   useEffect(() => {

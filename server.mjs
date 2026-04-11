@@ -85,7 +85,12 @@ function sendFile(response, filePath) {
       '.ico': 'image/x-icon',
     }[ext] ?? 'application/octet-stream'
 
-  response.writeHead(200, { 'Content-Type': contentType })
+  // HTML must never be cached — JS/CSS/media can be cached (Vite adds hashes)
+  const cacheControl = ext === '.html'
+    ? 'no-store, no-cache, must-revalidate'
+    : 'public, max-age=31536000, immutable'
+
+  response.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheControl })
   createReadStream(filePath).pipe(response)
 }
 
