@@ -369,6 +369,19 @@ export default function App() {
     return () => clearInterval(id)
   }, [sessionCode])
 
+  // Re-register player with server on every page load so votes are always captured
+  useEffect(() => {
+    if (isHost || loading || !joined) return
+    const name = localStorage.getItem(NAME_KEY)
+    if (!name) return
+    void api<SessionResponse>(`/api/session/${sessionCode}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId, name }),
+    }).catch(() => setJoined(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
+
   // Reset vote on round change
   useEffect(() => {
     setMyVote(null)
