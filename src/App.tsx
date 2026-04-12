@@ -512,6 +512,17 @@ export default function App() {
               <button className="ghost-btn" onClick={() => setShowSetup((s) => !s)}>
                 {showSetup ? '✕ סגור עריכה' : '⚙ עריכת משחק'}
               </button>
+              {state.phase !== 'setup' && (
+                <button
+                  className="ghost-btn"
+                  onClick={() => {
+                    if (confirm('לאפס משחק? שחקנים וציונים יימחקו, סרטונים יישמרו.'))
+                      void persist({ ...state, phase: 'setup', votes: [], players: [], currentRoundIndex: 0, votingOpen: false })
+                  }}
+                >
+                  🔄 אפס
+                </button>
+              )}
             </div>
           </header>
 
