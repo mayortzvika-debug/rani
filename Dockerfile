@@ -1,6 +1,10 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# Receive build-time secrets from Railway / CI
+ARG VITE_GOOGLE_CLIENT_ID
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+
 COPY package*.json ./
 RUN npm ci
 
