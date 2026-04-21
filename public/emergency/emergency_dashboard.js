@@ -1,11 +1,8 @@
-const KEY = 'emergency_webapp_url';
-const LEGACY_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxKB8aQnlYnSRoCQT83O1kVPVUByHkoMNPf4HcqyS03nhQIfwWIN6vd5ITReO_rEqYf/exec';
-const PREVIOUS_DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyTqnLFnQQc5zTaNJf8U0n_sR7It5SZEFJ8GVp63sk-PM_YZY_k7e7elg6vbX2eAzY_/exec';
-const LAST_DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbx3AdC4L52BDVYY7Pr9qOMBBFhTUb110TGon5DNmaOwo3lksQH5J0Sz3NfvcW5y3URm/exec';
-const DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxNCmYvyy4nnWflmfcAdsGuKdsK5KNUFjUTYhEnu0k5bZOVg4SlN4EjFtcrwGdSZT8-/exec';
+const EM_ENTRIES_KEY = 'em_entries';
 
-const webappInput = document.getElementById('webappUrl');
-const saveUrlBtn = document.getElementById('saveUrlBtn');
+// stub so old code that references webappInput doesn't crash
+const webappInput = { value: '' };
+const saveUrlBtn = null;
 const refreshBtn = document.getElementById('refreshBtn');
 const eventsBody = document.getElementById('eventsBody');
 const autoRefresh = document.getElementById('autoRefresh');
@@ -79,17 +76,7 @@ const BAT_YAM_GIS_URL = 'https://v5.gis-net.co.il/v5/batyam';
 const MAX_MEDIA_FILE_SIZE = 8 * 1024 * 1024; // 8MB לפריט
 let statusModalUploadedMediaItems = [];
 
-const storedWebappUrl = (localStorage.getItem(KEY) || '').trim();
-if (!storedWebappUrl || storedWebappUrl === LEGACY_WEBAPP_URL || storedWebappUrl === PREVIOUS_DEFAULT_WEBAPP_URL || storedWebappUrl === LAST_DEFAULT_WEBAPP_URL) {
-  localStorage.setItem(KEY, DEFAULT_WEBAPP_URL);
-}
-webappInput.value = localStorage.getItem(KEY) || DEFAULT_WEBAPP_URL;
-
-saveUrlBtn.addEventListener('click', () => {
-  localStorage.setItem(KEY, webappInput.value.trim());
-  loadData();
-});
-
+ensureDemoEntries();
 refreshBtn.addEventListener('click', loadData);
 
 autoRefresh?.addEventListener('change', setupAutoRefresh);
@@ -181,19 +168,12 @@ document.querySelectorAll('.marker-chip').forEach(btn => {
   });
 });
 
-eventForm?.addEventListener('submit', async (e) => {
+eventForm?.addEventListener('submit', (e) => {
   e.preventDefault();
   formStatus.classList.remove('error');
-  formStatus.textContent = 'שולח...';
-
-  const base = (webappInput.value || '').trim();
-  if (!base) {
-    formStatus.classList.add('error');
-    formStatus.textContent = 'חסר URL של Apps Script';
-    return;
-  }
 
   const payload = {
+    id: 'e' + Date.now(),
     timestamp: new Date().toISOString(),
     sender: performerInput.value.trim(),
     message: messageInput.value.trim(),
@@ -201,7 +181,9 @@ eventForm?.addEventListener('submit', async (e) => {
     classification: classificationInput?.value || '',
     status: statusInput.value,
     chat_type: 'manual',
-    source: sourceInput.value.trim() || 'מוקד מרכזי'
+    source: sourceInput.value.trim() || 'מוקד מרכזי',
+    latitude: null,
+    longitude: null,
   };
 
   if (selectedMapLocation.lat !== null && selectedMapLocation.lng !== null) {
@@ -209,30 +191,25 @@ eventForm?.addEventListener('submit', async (e) => {
     payload.longitude = selectedMapLocation.lng;
   }
 
-  console.log('🎯 FORM VALUES:');
-  console.log('  performerInput.value:', performerInput.value);
-  console.log('  messageInput.value:', messageInput.value);
-  console.log('  payload.sender:', payload.sender);
-  console.log('  payload.message:', payload.message);
-
   if (!payload.sender || !payload.message) {
     formStatus.classList.add('error');
     formStatus.textContent = 'שולח ותיאור אירוע הם שדות חובה';
     return;
   }
 
-  try {
-    const result = await appendEventWithFallback(base, payload);
-    formStatus.textContent = result.via === 'proxy'
-      ? 'האירוע נשמר בהצלחה'
-      : 'האירוע נשלח (שליחה ישירה)';
-    messageInput.value = '';
-    await loadData();
-    return;
-  } catch (err) {
-    formStatus.classList.add('error');
-    formStatus.textContent = `שגיאה בשמירה: ${err.message}`;
+  // שמירה ב-localStorage
+  const entries = JSON.parse(localStorage.getItem(EM_ENTRIES_KEY) || '[]');
+  entries.push(payload);
+  localStorage.setItem(EM_ENTRIES_KEY, JSON.stringify(entries));
+
+  // סימון אוטומטי על המפה אם יש קואורדינטות
+  if (payload.latitude && payload.longitude) {
+    autoMarkEntryOnMap(payload);
   }
+
+  formStatus.textContent = 'האירוע נשמר בהצלחה';
+  messageInput.value = '';
+  loadData();
 });
 
 function escapeHtml(value) {
@@ -452,46 +429,48 @@ function normalizeServerError(err, baseUrl) {
   return text;
 }
 
-async function loadData() {
-  const base = (webappInput.value || '').trim();
-  if (!base) {
-    eventsBody.innerHTML = '<tr><td colspan="8">הזן URL של Apps Script</td></tr>';
-    return;
-  }
+function loadData() {
+  const entries = JSON.parse(localStorage.getItem(EM_ENTRIES_KEY) || '[]');
+  render(entries.slice().reverse());
+  if (lastUpdated) lastUpdated.textContent = `עודכן: ${new Date().toLocaleTimeString('he-IL')}`;
+}
 
-  const loadViaProxy = async () => {
-    return await fetchJson('/api/proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: `${base}?action=list&limit=200`,
-        method: 'GET'
-      })
-    });
-  };
-
-  try {
-    let data;
-    try {
-      data = await loadViaProxy();
-    } catch (_) {
-      data = await fetchJson(`${base}?action=list&limit=200`);
-    }
-
-    if (!data?.ok) throw new Error(normalizeServerError(data?.error || 'load failed', base));
-    render(data.rows || []);
-    lastUpdated.textContent = `עודכן: ${new Date().toLocaleTimeString('he-IL')}`;
-  } catch (e) {
-    const localHint = window.location.protocol === 'file:'
-      ? ' | הקובץ פתוח מקומית (file://). מומלץ להריץ דרך שרת (Vercel/localhost).'
-      : '';
-    eventsBody.innerHTML = `<tr><td colspan="8">שגיאה בטעינה: ${e.message}${localHint}</td></tr>`;
-    lastUpdated.textContent = 'כשל בעדכון';
-  }
+function ensureDemoEntries() {
+  if (localStorage.getItem(EM_ENTRIES_KEY)) return; // כבר יש נתונים
+  const now = Date.now();
+  const ago = (min) => new Date(now - min * 60000).toISOString();
+  const demo = [
+    { id: 'd1', timestamp: ago(180), sender: 'פיקוד צפון', message: 'נפילת רקטה ברחוב הרצל 42 - דיווח על נפגעים', location: 'רחוב הרצל 42, בת ים', classification: 'חירום', status: 'בטיפול', chat_type: 'Telegram', source: 'מוקד מרכזי', latitude: 32.0170, longitude: 34.7492 },
+    { id: 'd2', timestamp: ago(155), sender: 'מד"א בת ים', message: '3 פצועים הועברו לבית חולים וולפסון', location: 'רחוב הרצל 42', classification: 'כוחות', status: 'בטיפול', chat_type: 'מוקד', source: 'מד"א', latitude: null, longitude: null },
+    { id: 'd3', timestamp: ago(130), sender: 'כבאות', message: 'שריפה קטנה בעקבות פגיעה - טופלה בשטח', location: 'שד\' בן גוריון 10', classification: 'כוחות', status: 'נסגר', chat_type: 'מוקד', source: 'כבאות', latitude: 32.0210, longitude: 34.7510 },
+    { id: 'd4', timestamp: ago(110), sender: 'עירייה', message: 'פינוי תושבים מבניין פגוע - 18 נפשות פונו', location: 'רחוב ביאליק 17', classification: 'אוכלוסייה', status: 'בטיפול', chat_type: 'מוקד', source: 'מוקד עירוני', latitude: 32.0195, longitude: 34.7480 },
+    { id: 'd5', timestamp: ago(85), sender: 'תאגיד מים', message: 'נזק לצינור מים ראשי - אספקה מופסקת ל-3 בניינים', location: 'רחוב אחד העם 55', classification: 'תשתיות', status: 'בטיפול', chat_type: 'מוקד', source: 'תאגיד מים', latitude: null, longitude: null },
+    { id: 'd6', timestamp: ago(60), sender: 'פיקוד עורף', message: 'התרעה: צפי לנפילות נוספות באזור מרכז בת ים', location: 'בת ים - מרכז', classification: 'חירום', status: 'חירום', chat_type: 'Telegram', source: 'פיקוד עורף', latitude: null, longitude: null },
+    { id: 'd7', timestamp: ago(42), sender: 'מוקד מרכזי', message: 'נפגע נוסף מחפצים שנשרו - פצוע קל', location: 'שד\' רוטשילד 7', classification: 'כוחות', status: 'בטיפול', chat_type: 'manual', source: 'מוקד מרכזי', latitude: 32.0225, longitude: 34.7498 },
+    { id: 'd8', timestamp: ago(20), sender: 'עירייה', message: 'מרכז קהילתי גאולה נפתח לאיסוף מפונים - קיבולת 80 נפש', location: 'רחוב הרצל 20', classification: 'אוכלוסייה', status: 'פעיל', chat_type: 'מוקד', source: 'מוקד עירוני', latitude: 32.0175, longitude: 34.7505 },
+    { id: 'd9', timestamp: ago(10), sender: 'משטרה', message: 'תחנת משטרה בת ים מתגברת - כוחות בשטח', location: 'רחוב הנביאים 3', classification: 'כוחות', status: 'פעיל', chat_type: 'מוקד', source: 'משטרה', latitude: null, longitude: null },
+    { id: 'd10', timestamp: ago(3), sender: 'חפ"ק עיר', message: 'מצב עדכני: 4 פצועים, 18 מפונים, תשתיות מים בטיפול', location: 'בת ים', classification: 'מצב כולל', status: 'בטיפול', chat_type: 'manual', source: 'חפ"ק עיר', latitude: null, longitude: null },
+  ];
+  localStorage.setItem(EM_ENTRIES_KEY, JSON.stringify(demo));
 }
 
 loadData();
 setupAutoRefresh();
+
+// סימון אוטומטי על המפה כשנוצר אירוע עם מיקום
+function autoMarkEntryOnMap(payload) {
+  const markerType = (['חירום','נפילה','פגיעה'].some(w => (payload.message||'').includes(w))) ? 'rocket' : 'rescue';
+  const label = payload.location || payload.message?.slice(0,30) || 'אירוע';
+  // שמור ל-localStorage של המפה
+  const pts = JSON.parse(localStorage.getItem('em_map_points') || '[]');
+  pts.push({ lat: payload.latitude, lng: payload.longitude, label, type: markerType, emoji: '', index: pts.length + 1 });
+  localStorage.setItem('em_map_points', JSON.stringify(pts));
+  // אם המפה פתוחה, עדכן אותה בזמן אמת
+  if (typeof notifyImpactPoint === 'function') {
+    notifyImpactPoint(payload.latitude, payload.longitude, label, markerType);
+  }
+  if (typeof renderMapPoints === 'function') renderMapPoints();
+}
 
 // אתחול דשבורד בטעינה ראשונה
 setTimeout(() => {
@@ -847,82 +826,21 @@ addStatusCardBtn?.addEventListener('click', () => {
 });
 
 async function fetchStatusCardsFromStorage() {
-  const base = (webappInput.value || '').trim();
-
-  if (!base) {
-    throw new Error('חסר URL של Apps Script. לא ניתן לסנכרן בין מכשירים ללא שרת.');
-  }
-
-  const data = await fetchJson('/api/proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: base, action: STATUS_ACTIONS.list })
-  });
-
-  if (data?.ok === true && Array.isArray(data?.cards)) {
-    localStorage.setItem(TAB_CONFIG_KEY, JSON.stringify(data.cards));
-    return data.cards;
-  }
-
-  if (data?.ok === true && data?.saved === true && !Array.isArray(data?.cards)) {
-    throw new Error(
-      `השרת מחזיר saved=true במקום רשימת cards. זה אומר שה-Apps Script בכתובת ${base} לא מעודכן לפעולות תמונת מצב (status_cards_*). יש להדביק מחדש את google_apps_script_emergency.gs ולבצע Deploy חדש ל-Web App (/exec).`
-    );
-  }
-
-  throw new Error(normalizeServerError(data?.error, base));
+  return JSON.parse(localStorage.getItem(TAB_CONFIG_KEY) || '[]');
 }
 
 async function upsertStatusCardToStorage(card) {
-  const base = (webappInput.value || '').trim();
-  if (!base) throw new Error('חסר URL של Apps Script. שמירה מקומית בלבד בוטלה כדי למנוע חוסר סנכרון.');
-
-  const data = await fetchJson('/api/proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: base, action: STATUS_ACTIONS.upsert, card, id: card.id })
-  });
-
-  if (!(data?.ok === true && data?.saved === true)) {
-    if (data?.ok === true && !data?.saved && !data?.error) {
-      throw new Error(
-        `השרת לא מאשר שמירת כרטיסי תמונת מצב. כנראה גרסת Apps Script ישנה בכתובת ${base}. נדרש Deploy חדש.`
-      );
-    }
-    throw new Error(normalizeServerError(data?.error, base));
-  }
-
-  const localCards = JSON.parse(localStorage.getItem(TAB_CONFIG_KEY) || '[]');
-  const localIdx = localCards.findIndex(c => String(c.id || '') === String(card.id || ''));
-  if (localIdx >= 0) localCards[localIdx] = card;
-  else localCards.push(card);
-  localStorage.setItem(TAB_CONFIG_KEY, JSON.stringify(localCards));
-
+  const cards = JSON.parse(localStorage.getItem(TAB_CONFIG_KEY) || '[]');
+  const idx = cards.findIndex(c => String(c.id || '') === String(card.id || ''));
+  if (idx >= 0) cards[idx] = card;
+  else cards.push(card);
+  localStorage.setItem(TAB_CONFIG_KEY, JSON.stringify(cards));
   return { synced: true };
 }
 
 async function deleteStatusCardFromStorage(cardId) {
-  const base = (webappInput.value || '').trim();
-  if (!base) throw new Error('חסר URL של Apps Script. מחיקה מקומית בלבד בוטלה כדי למנוע חוסר סנכרון.');
-
-  const data = await fetchJson('/api/proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: base, action: STATUS_ACTIONS.delete, id: cardId })
-  });
-
-  if (!(data?.ok === true && data?.deleted === true)) {
-    if (data?.ok === true && data?.saved === true && !data?.deleted) {
-      throw new Error(
-        `השרת החזיר saved=true במקום deleted=true. כנראה גרסת Apps Script ישנה בכתובת ${base} שאינה תומכת status_cards_delete. יש לבצע Deploy חדש.`
-      );
-    }
-    throw new Error(normalizeServerError(data?.error, base));
-  }
-
-  const localCards = JSON.parse(localStorage.getItem(TAB_CONFIG_KEY) || '[]').filter(c => String(c.id || '') !== String(cardId || ''));
-  localStorage.setItem(TAB_CONFIG_KEY, JSON.stringify(localCards));
-
+  const cards = JSON.parse(localStorage.getItem(TAB_CONFIG_KEY) || '[]').filter(c => String(c.id || '') !== String(cardId || ''));
+  localStorage.setItem(TAB_CONFIG_KEY, JSON.stringify(cards));
   return { synced: true };
 }
 
@@ -1750,11 +1668,7 @@ async function saveStatusCard(idx) {
 
 // טען קוביות בעת הטעינה ההתחלתית
 async function logStatusUpdateToSheet(card, changeType = 'create', changeSummary = '') {
-  const base = (webappInput.value || '').trim();
-  if (!base) {
-    console.warn('לא ניתן לרשום עדכון ליומן, אין URL מוגדר.');
-    return;
-  }
+  const base = ''; // localStorage mode — no server needed
 
   const actionTextByType = {
     create: 'פתיחת זירת אירוע חדשה',
@@ -1830,20 +1744,15 @@ async function logStatusUpdateToSheet(card, changeType = 'create', changeSummary
   statusLogLastAt = now;
 
   try {
-    await tryAppendViaProxy();
-    console.log('✅ עדכון תמונת המצב נרשם ביומן האירועים (proxy).');
-    await loadData(); // רענן את טבלת יומן האירועים כדי להציג את העדכון
+    // שמור ישירות ב-localStorage
+    const entries = JSON.parse(localStorage.getItem(EM_ENTRIES_KEY) || '[]');
+    entries.push({ ...payload, id: 'sc' + Date.now() });
+    localStorage.setItem(EM_ENTRIES_KEY, JSON.stringify(entries));
+    loadData();
     return true;
   } catch (err) {
-    console.warn(`⚠️ proxy נכשל ברישום עדכון, מנסה שליחה ישירה: ${err.message}`);
-    try {
-      await appendEventViaNoCorsGet(base, payload);
-      await loadData();
-      return true;
-    } catch (directErr) {
-      console.error(`❌ שגיאה ברישום עדכון ליומן: proxy=${err.message} | direct=${directErr.message}`);
-      return false;
-    }
+    console.error('שגיאה ברישום עדכון ליומן:', err);
+    return false;
   }
 }
 
@@ -1937,16 +1846,10 @@ function renderSitrepLatest(record) {
 }
 
 async function loadSitrepLatest() {
-  const base = (webappInput.value || '').trim();
-  if (!base || !sitrepLatestContainer) return;
+  if (!sitrepLatestContainer) return;
   try {
-    const data = await fetchJson('/api/proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: base, action: SITREP_ACTIONS.latest })
-    });
-    if (!data?.ok) throw new Error(data?.error || 'sitrep_latest_failed');
-    renderSitrepLatest(data.item || null);
+    const item = JSON.parse(localStorage.getItem('em_sitrep_latest') || 'null');
+    renderSitrepLatest(item);
   } catch (err) {
     sitrepLatestContainer.innerHTML = `<div style="color:#fca5a5">שגיאה בטעינת הערכת מצב: ${escapeHtml(err.message)}</div>`;
   }
@@ -1964,9 +1867,8 @@ async function refreshAfterSitrepSave() {
 }
 
 async function logSitrepToEvents(record) {
-  const base = (webappInput.value || '').trim();
-  if (!base) return;
   const payload = {
+    id: 'sitrep' + Date.now(),
     timestamp: record.updated_at || new Date().toISOString(),
     sender: 'מערכת הערכת מצב',
     message: `הוזנה הערכת מצב חדשה: ${record.summary_title || 'ללא כותרת'}`,
@@ -1977,36 +1879,15 @@ async function logSitrepToEvents(record) {
     source: record.editor || 'Dashboard'
   };
   try {
-    await appendEventWithFallback(base, payload);
+    const entries = JSON.parse(localStorage.getItem(EM_ENTRIES_KEY) || '[]');
+    entries.push(payload);
+    localStorage.setItem(EM_ENTRIES_KEY, JSON.stringify(entries));
   } catch (_) {}
 }
 
 async function upsertSitrepWithFallback(base, record) {
-  const proxyPayload = { url: base, action: SITREP_ACTIONS.upsert, record };
-  try {
-    const data = await fetchJson('/api/proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(proxyPayload)
-    });
-    if (data?.ok && data?.saved) {
-      return { ok: true, via: 'proxy', data };
-    }
-    throw new Error(data?.error || 'sitrep_save_failed');
-  } catch (proxyErr) {
-    // fallback לסביבה ללא backend/proxy (למשל פתיחה מקומית)
-    try {
-      await fetch(base, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: SITREP_ACTIONS.upsert, record })
-      });
-      return { ok: true, via: 'direct-no-cors' };
-    } catch (directErr) {
-      throw new Error(`Proxy: ${proxyErr.message} | Direct: ${directErr.message}`);
-    }
-  }
+  localStorage.setItem('em_sitrep_latest', JSON.stringify(record));
+  return { ok: true, via: 'localStorage' };
 }
 
 sitrepPromptBtn?.addEventListener('click', async () => {
@@ -2022,15 +1903,6 @@ sitrepPromptBtn?.addEventListener('click', async () => {
 
 sitrepSaveBtn?.addEventListener('click', async () => {
   if (!sitrepJsonInput) return;
-  const base = (webappInput.value || '').trim();
-  if (!base) {
-    if (sitrepFormStatus) {
-      sitrepFormStatus.classList.add('error');
-      sitrepFormStatus.textContent = 'חסר URL של Apps Script';
-    }
-    return;
-  }
-
   try {
     const parsed = JSON.parse(sitrepJsonInput.value || '{}');
     const record = {
@@ -2038,7 +1910,7 @@ sitrepSaveBtn?.addEventListener('click', async () => {
       raw_text: sitrepRawInput?.value?.trim() || parsed.raw_text || ''
     };
 
-    await upsertSitrepWithFallback(base, record);
+    await upsertSitrepWithFallback('', record);
 
     if (sitrepFormStatus) {
       sitrepFormStatus.classList.remove('error');
@@ -2085,15 +1957,6 @@ function bindSitrepEditorModal() {
   });
 
   saveBtn?.addEventListener('click', async () => {
-    const base = (webappInput.value || '').trim();
-    if (!base) {
-      if (statusEl) {
-        statusEl.classList.add('error');
-        statusEl.textContent = 'חסר URL של Apps Script';
-      }
-      return;
-    }
-
     try {
       const parsed = JSON.parse(jsonEl?.value || '{}');
       const record = {
@@ -2101,7 +1964,7 @@ function bindSitrepEditorModal() {
         raw_text: rawEl?.value?.trim() || parsed.raw_text || ''
       };
 
-      await upsertSitrepWithFallback(base, record);
+      await upsertSitrepWithFallback('', record);
 
       if (statusEl) {
         statusEl.classList.remove('error');
