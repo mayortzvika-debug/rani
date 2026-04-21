@@ -502,11 +502,6 @@ function switchTab(tabName) {
   // בדיקת הרשאה (auth.js)
   if (typeof hasPermission === 'function' && !hasPermission(tabName, 'read')) return;
 
-  if (tabName === 'dashboard') {
-    if (typeof initDashboardTab === 'function') initDashboardTab();
-    return;
-  }
-
   // הסר active מכל הטבים וקונטנט
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -514,6 +509,11 @@ function switchTab(tabName) {
   // הוסף active לטאב ותוכן הנבחר
   document.querySelector(`[data-tab="${tabName}"]`)?.classList.add('active');
   document.getElementById(`${tabName}-tab`)?.classList.add('active');
+
+  if (tabName === 'dashboard') {
+    if (typeof initDashboardTab === 'function') initDashboardTab();
+    return;
+  }
 
   if (tabName === 'status') {
     loadStatusCards();
