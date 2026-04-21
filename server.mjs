@@ -235,39 +235,46 @@ createServer(async (request, response) => {
     return
   }
 
-  // CORS proxy for emergency dashboard (Google Apps Script + Nominatim)
+  // CORS proxy for emergency dashboard (Google Apps Script + Nominatim + Red Alert)
   if (pathname === '/api/proxy') {
     const ALLOWED_HOSTS = [
       'script.google.com',
       'script.googleusercontent.com',
       'nominatim.openstreetmap.org',
+      'www.oref.org.il',
+      'oref.org.il',
     ]
     try {
       let targetUrl = null
+      let parsedBody = null
       if (request.method === 'GET') {
         targetUrl = url.searchParams.get('url')
       } else {
         const bodyText = String(await readBody(request))
-        try { targetUrl = JSON.parse(bodyText).url } catch { targetUrl = new URLSearchParams(bodyText).get('url') }
+        try {
+          parsedBody = JSON.parse(bodyText)
+          targetUrl = parsedBody.url
+        } catch {
+          targetUrl = new URLSearchParams(bodyText).get('url')
+        }
       }
       if (!targetUrl) { text(response, 400, 'Missing url parameter'); return }
       const parsedTarget = new URL(targetUrl)
       if (!ALLOWED_HOSTS.some(h => parsedTarget.hostname === h || parsedTarget.hostname.endsWith('.' + h))) {
         text(response, 403, 'Host not allowed: ' + parsedTarget.hostname); return
       }
+      const upstreamMethod = (parsedBody?.method || (request.method === 'GET' ? 'GET' : 'POST')).toUpperCase()
       const fetchOptions = {
-        method: request.method === 'GET' ? 'GET' : 'POST',
-        headers: { 'User-Agent': 'EmergencyDashboard/1.0', 'Accept': 'application/json, */*' },
+        method: upstreamMethod,
+        headers: {
+          'User-Agent': 'EmergencyDashboard/1.0',
+          'Accept': 'application/json, */*',
+          ...(parsedBody?.headers || {}),
+        },
       }
-      if (request.method !== 'GET') {
-        const bodyText = String(await readBody(request))
-        try {
-          const parsed = JSON.parse(bodyText)
-          fetchOptions.body = JSON.stringify(parsed.body || parsed)
-          fetchOptions.headers['Content-Type'] = 'application/json'
-        } catch {
-          fetchOptions.body = bodyText
-        }
+      if (upstreamMethod !== 'GET' && parsedBody?.body) {
+        fetchOptions.body = JSON.stringify(parsedBody.body)
+        fetchOptions.headers['Content-Type'] = 'application/json'
       }
       const upstream = await fetch(targetUrl, fetchOptions)
       const upstreamText = await upstream.text()
