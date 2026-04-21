@@ -106,26 +106,67 @@ function openFamilyCenterManager() {
   overlay.className = 'modal-overlay';
   overlay.id = 'fc-manager-overlay';
   overlay.innerHTML = `
-    <div class="modal" style="max-width:760px; width:96%">
+    <div class="modal" style="max-width:820px; width:96%">
       <h3>🏢 ניהול מרכזי משפחות</h3>
       <div id="fc-list">${buildFCListHTML(centers)}</div>
       <hr style="border-color:rgba(148,163,184,0.2); margin:18px 0" />
-      <h4 style="color:#38bdf8; margin:0 0 12px">הוסף / ייבא מרכז</h4>
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px">
-        <input id="fc-name"    placeholder="שם המרכז" />
-        <input id="fc-address" placeholder="כתובת מלאה" />
-        <input id="fc-streets" placeholder="רחובות (פסיק מפריד)" />
+      <h4 style="color:#38bdf8; margin:0 0 12px">הוסף מרכז</h4>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px">
+        <input id="fc-name"    placeholder="שם המרכז (למשל: מרכז קהילתי גאולה)" />
+        <input id="fc-address" placeholder="כתובת מלאה (לגיאוקוד)" />
       </div>
-      <p style="color:#64748b; font-size:0.82rem; margin:4px 0 12px">הקואורדינטות יחושבו אוטומטית לפי הכתובת.</p>
+      <div style="margin-bottom:10px">
+        <input id="fc-streets" placeholder="רחובות ותחומים, פסיק מפריד — למשל: הרצל, ביאליק 1-50, ירושלים 20-80" style="width:100%" />
+        <p style="color:#64748b; font-size:0.8rem; margin:4px 0 0">
+          💡 ניתן להגדיר טווח מספרים לכל רחוב: <strong>שם_רחוב מ-עד</strong> (למשל <em>הרצל 1-50</em>).
+          רחוב ללא טווח = כל המספרים.
+        </p>
+      </div>
       <div id="fc-error" style="display:none; color:#f87171; margin-bottom:10px; font-size:0.88rem"></div>
+      <div id="fc-status" style="display:none; color:#38bdf8; margin-bottom:10px; font-size:0.88rem"></div>
       <div class="modal-buttons">
-        <button onclick="addFamilyCenter()">➕ הוסף מרכז</button>
+        <button id="fc-add-btn" onclick="addFamilyCenter()">➕ הוסף מרכז</button>
         <button class="btn-cancel" onclick="document.getElementById('fc-manager-overlay')?.remove()">סגור</button>
       </div>
     </div>
   `;
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
+}
+
+// פרסור טווח רחוב: "הרצל 1-50" → { street: "הרצל", from: 1, to: 50 }
+// "הרצל" → { street: "הרצל", from: null, to: null }
+function parseStreetEntry(entry) {
+  const m = entry.trim().match(/^(.+?)\s+(\d+)-(\d+)$/);
+  if (m) return { street: m[1].trim(), from: parseInt(m[2]), to: parseInt(m[3]) };
+  return { street: entry.trim(), from: null, to: null };
+}
+
+// האם כתובת "רחוב X מספר N" תואמת ערך רחוב של מרכז?
+// address: "הרצל 15" / "הרצל" / "שד' הרצל 15"
+function streetMatchesEntry(address, entry) {
+  const { street, from, to } = parseStreetEntry(entry);
+  const addrLower = address.toLowerCase();
+  const streetLower = street.toLowerCase();
+  if (!addrLower.includes(streetLower)) return false;
+  if (from === null) return true; // כל המספרים
+  // מחלץ מספר בית מהכתובת
+  const numMatch = address.match(/(\d+)/);
+  if (!numMatch) return true; // אין מספר — לא ניתן לדחות
+  const num = parseInt(numMatch[1]);
+  return num >= from && num <= to;
+}
+
+// האם כתובת תושב שייכת למרכז לפי רשימת הרחובות שלו?
+function residentBelongsToCenter(residentAddress, center) {
+  if (!residentAddress || !center.streets?.length) return false;
+  return center.streets.some(entry => streetMatchesEntry(residentAddress, entry));
+}
+
+// מצא מרכז משפחות מתאים לתושב לפי כתובתו
+function findCenterForResident(residentAddress) {
+  const centers = getFamilyCenters();
+  return centers.find(c => residentBelongsToCenter(residentAddress, c)) || null;
 }
 
 function buildFCListHTML(centers) {
@@ -136,20 +177,32 @@ function buildFCListHTML(centers) {
       <thead><tr>
         <th style="color:#94a3b8; padding:8px; text-align:right">שם</th>
         <th style="color:#94a3b8; padding:8px; text-align:right">כתובת</th>
-        <th style="color:#94a3b8; padding:8px; text-align:right">רחובות</th>
+        <th style="color:#94a3b8; padding:8px; text-align:right">רחובות ותחומים</th>
+        <th style="color:#94a3b8; padding:8px; text-align:right">מיקום</th>
         <th style="color:#94a3b8; padding:8px; text-align:right">פעולות</th>
       </tr></thead>
       <tbody>
-        ${centers.map(c => `
+        ${centers.map(c => {
+          const streetTags = (c.streets || []).map(s => {
+            const p = parseStreetEntry(s);
+            const label = p.from !== null ? `${p.street} ${p.from}–${p.to}` : p.street;
+            return `<span style="display:inline-block; background:rgba(56,189,248,0.12); color:#38bdf8; border-radius:4px; padding:1px 6px; margin:1px; font-size:0.78rem">${mEscape(label)}</span>`;
+          }).join('');
+          const coordBadge = (c.lat && c.lng)
+            ? `<span style="color:#22c55e; font-size:0.78rem">📍 ${c.lat.toFixed(3)}, ${c.lng.toFixed(3)}</span>`
+            : `<span style="color:#f97316; font-size:0.78rem">⚠️ אין קואורדינטות</span>`;
+          return `
           <tr style="border-top:1px solid rgba(148,163,184,0.1)">
             <td style="padding:8px; font-weight:500">${mEscape(c.name)}</td>
             <td style="padding:8px; color:#94a3b8">${mEscape(c.address)}</td>
-            <td style="padding:8px; color:#94a3b8; font-size:0.82rem">${mEscape((c.streets || []).join(', '))}</td>
+            <td style="padding:8px">${streetTags || '<span style="color:#64748b; font-size:0.82rem">—</span>'}</td>
+            <td style="padding:8px">${coordBadge}</td>
             <td style="padding:8px">
               <button class="btn-secondary" style="padding:3px 8px; font-size:0.78rem; background:rgba(239,68,68,0.2)" onclick="deleteFamilyCenter('${c.id}')">מחק</button>
             </td>
           </tr>
-        `).join('')}
+          `;
+        }).join('')}
       </tbody>
     </table>
     </div>
@@ -161,19 +214,39 @@ async function addFamilyCenter() {
   const address = (document.getElementById('fc-address')?.value || '').trim();
   const streets = (document.getElementById('fc-streets')?.value || '')
     .split(',').map(s => s.trim()).filter(Boolean);
-  const errEl   = document.getElementById('fc-error');
+  const errEl    = document.getElementById('fc-error');
+  const statusEl = document.getElementById('fc-status');
+  const addBtn   = document.getElementById('fc-add-btn');
 
-  if (!name || !address) {
-    errEl.textContent = 'יש למלא שם וכתובת';
-    errEl.style.display = 'block';
-    return;
+  function showErr(msg) {
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    if (statusEl) statusEl.style.display = 'none';
+    if (addBtn) { addBtn.disabled = false; addBtn.textContent = '➕ הוסף מרכז'; }
+  }
+  function showStatus(msg) {
+    if (statusEl) { statusEl.textContent = msg; statusEl.style.display = 'block'; }
+    if (errEl) errEl.style.display = 'none';
   }
 
-  errEl.style.display = 'none';
+  if (!name || !address) { showErr('יש למלא שם וכתובת'); return; }
 
-  const coords = await geocodeAddress(address + ', בת ים, ישראל');
+  if (errEl) errEl.style.display = 'none';
+  if (statusEl) statusEl.style.display = 'none';
+  if (addBtn) { addBtn.disabled = true; addBtn.textContent = '⏳ מחפש כתובת...'; }
+
+  let coords = null;
+  try {
+    // timeout של 8 שניות לגיאוקוד
+    const geocodePromise = geocodeAddress(address + ', בת ים, ישראל');
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 8000));
+    coords = await Promise.race([geocodePromise, timeoutPromise]);
+  } catch {
+    coords = null;
+  }
+
+  if (addBtn) { addBtn.disabled = false; addBtn.textContent = '➕ הוסף מרכז'; }
+
   const centers = getFamilyCenters();
-
   centers.push({
     id: genId(),
     name,
@@ -188,6 +261,12 @@ async function addFamilyCenter() {
   document.getElementById('fc-name').value    = '';
   document.getElementById('fc-address').value = '';
   document.getElementById('fc-streets').value = '';
+
+  if (coords) {
+    showStatus(`✅ המרכז נוסף ומוקם על המפה (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`);
+  } else {
+    showStatus('✅ המרכז נוסף. לא נמצאו קואורדינטות — ניתן להזין ידנית בעתיד.');
+  }
 }
 
 function deleteFamilyCenter(id) {
