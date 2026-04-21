@@ -52,7 +52,15 @@ async function initAuth() {
   // הסתר הכל עד לאימות
   setMainContentVisible(false);
   createLoginOverlay();
+
+  // חסום את הטופס עד שהמשתמש הדיפולטי נוצר
+  const submitBtn = document.getElementById('auth-submit');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'מאתחל...'; }
+
   await ensureDefaultAdmin();
+
+  if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'כניסה למערכת'; }
+
   checkExistingSession();
 }
 
@@ -322,7 +330,7 @@ async function hashPassword(password, salt) {
       'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']
     );
     const bits = await crypto.subtle.deriveBits(
-      { name: 'PBKDF2', salt: enc.encode(salt), iterations: 100000, hash: 'SHA-256' },
+      { name: 'PBKDF2', salt: enc.encode(salt), iterations: 10000, hash: 'SHA-256' },
       keyMaterial, 256
     );
     return Array.from(new Uint8Array(bits))
@@ -360,24 +368,53 @@ function saveUsers(users) {
   localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
 }
 
+// זיהוי hash ישן (100k iterations — 64 תווים hex ללא prefix)
+function isLegacyHash(hash) {
+  return hash && !hash.startsWith('fallback_') && hash.length === 64;
+}
+
 async function ensureDefaultAdmin() {
   const users = getUsers();
-  if (users.length > 0) return;
 
-  const salt = _randomSalt();
-  const hash = await hashPassword('admin123', salt);
-  saveUsers([{
-    id:                 _randomId(),
-    username:           'admin',
-    displayName:        'מנהל מערכת',
-    role:               'admin',
-    passwordHash:       hash,
-    salt,
-    mustChangePassword: false,
-    locked:             false,
-    createdAt:          new Date().toISOString(),
-    lastLogin:          null,
-  }]);
+  // אם אין משתמשים — צור admin חדש
+  if (!users.length) {
+    const salt = _randomSalt();
+    const hash = await hashPassword('admin123', salt);
+    saveUsers([{
+      id:                 _randomId(),
+      username:           'admin',
+      displayName:        'מנהל מערכת',
+      role:               'admin',
+      passwordHash:       hash,
+      salt,
+      mustChangePassword: false,
+      locked:             false,
+      createdAt:          new Date().toISOString(),
+      lastLogin:          null,
+    }]);
+    return;
+  }
+
+  // אם כל המשתמשים הם admin עם hash ישן (100k iterations) — אפס אותם
+  const adminUser = users.find(u => u.username === 'admin');
+  if (adminUser && isLegacyHash(adminUser.passwordHash)) {
+    // hash ישן — מחק והתחל מחדש עם hash חדש
+    localStorage.removeItem(AUTH_USERS_KEY);
+    const salt = _randomSalt();
+    const hash = await hashPassword('admin123', salt);
+    saveUsers([{
+      id:                 adminUser.id || _randomId(),
+      username:           'admin',
+      displayName:        adminUser.displayName || 'מנהל מערכת',
+      role:               'admin',
+      passwordHash:       hash,
+      salt,
+      mustChangePassword: false,
+      locked:             false,
+      createdAt:          adminUser.createdAt || new Date().toISOString(),
+      lastLogin:          adminUser.lastLogin || null,
+    }]);
+  }
 }
 
 // ============================================================
