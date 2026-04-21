@@ -1658,12 +1658,53 @@ async function saveStatusCard(idx) {
     await upsertStatusCardToStorage(newCard);
     setStatusSyncStatus('ok', '🟢 השמירה סונכרנה לשרת');
     await logStatusUpdateToSheet(newCard, isEdit ? 'edit' : 'create', changeSummary);
+
+    // סמן על המפה אוטומטית (רק בעת יצירה, לא עריכה)
+    if (!isEdit) {
+      autoMarkStatusCardOnMap(newCard);
+    }
+
     closeModal();
     await loadStatusCards();
   } catch (err) {
     setStatusSyncStatus('error', '🔴 השמירה נכשלה - לא סונכרן לשרת');
     alert(`שגיאה בשמירת קובייה: ${err.message}`);
   }
+}
+
+// גיאוקוד כותרת קובייה וסמן על המפה
+async function autoMarkStatusCardOnMap(card) {
+  if (!card?.title) return;
+  // ניסיון גיאוקוד של הכותרת (עשויה להכיל כתובת)
+  const titleForGeo = card.title + ', בת ים, ישראל';
+  let coords = null;
+  try {
+    const proxyBase = window.location.origin + '/api/proxy';
+    const resp = await fetch(proxyBase, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(titleForGeo),
+        method: 'GET',
+      }),
+    });
+    const data = await resp.json();
+    if (Array.isArray(data) && data[0]) {
+      coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    }
+  } catch { /* שגיאת גיאוקוד — ממשיכים בלי מיקום */ }
+
+  if (!coords) return; // לא נמצא מיקום — לא מסמנים
+
+  const markerType = 'damaged_building';
+  const pts = JSON.parse(localStorage.getItem('em_map_points') || '[]');
+  pts.push({ lat: coords.lat, lng: coords.lng, label: card.title, type: markerType, emoji: '', index: pts.length + 1 });
+  localStorage.setItem('em_map_points', JSON.stringify(pts));
+
+  if (typeof notifyImpactPoint === 'function') {
+    notifyImpactPoint(coords.lat, coords.lng, card.title, markerType);
+  }
+  if (typeof renderMapPoints === 'function') renderMapPoints();
 }
 
 // טען קוביות בעת הטעינה ההתחלתית
