@@ -235,6 +235,60 @@ createServer(async (request, response) => {
     return
   }
 
+  // CORS proxy for emergency dashboard (Google Apps Script + Nominatim)
+  if (pathname === '/api/proxy') {
+    const ALLOWED_HOSTS = [
+      'script.google.com',
+      'script.googleusercontent.com',
+      'nominatim.openstreetmap.org',
+    ]
+    try {
+      let targetUrl = null
+      if (request.method === 'GET') {
+        targetUrl = url.searchParams.get('url')
+      } else {
+        const bodyText = String(await readBody(request))
+        try { targetUrl = JSON.parse(bodyText).url } catch { targetUrl = new URLSearchParams(bodyText).get('url') }
+      }
+      if (!targetUrl) { text(response, 400, 'Missing url parameter'); return }
+      const parsedTarget = new URL(targetUrl)
+      if (!ALLOWED_HOSTS.some(h => parsedTarget.hostname === h || parsedTarget.hostname.endsWith('.' + h))) {
+        text(response, 403, 'Host not allowed: ' + parsedTarget.hostname); return
+      }
+      const fetchOptions = {
+        method: request.method === 'GET' ? 'GET' : 'POST',
+        headers: { 'User-Agent': 'EmergencyDashboard/1.0', 'Accept': 'application/json, */*' },
+      }
+      if (request.method !== 'GET') {
+        const bodyText = String(await readBody(request))
+        try {
+          const parsed = JSON.parse(bodyText)
+          fetchOptions.body = JSON.stringify(parsed.body || parsed)
+          fetchOptions.headers['Content-Type'] = 'application/json'
+        } catch {
+          fetchOptions.body = bodyText
+        }
+      }
+      const upstream = await fetch(targetUrl, fetchOptions)
+      const upstreamText = await upstream.text()
+      response.writeHead(upstream.status, {
+        'Content-Type': upstream.headers.get('content-type') || 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      })
+      response.end(upstreamText)
+    } catch (err) {
+      text(response, 502, 'Proxy error: ' + err.message)
+    }
+    return
+  }
+
+  // OPTIONS preflight for proxy
+  if (request.method === 'OPTIONS' && pathname === '/api/proxy') {
+    response.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST', 'Access-Control-Allow-Headers': 'Content-Type' })
+    response.end()
+    return
+  }
+
   // Serve uploaded files
   if (pathname.startsWith('/uploads/')) {
     const filePath = join(storageDir, pathname.replace(/^\//, ''))
