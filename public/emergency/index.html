@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>דשבורד אירועי חירום</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="emergency_dashboard.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>🚨 דשבורד אירועי חירום</h1>
+    <div class="controls">
+      <input id="webappUrl" type="text" value="https://script.google.com/macros/s/AKfycbxNCmYvyy4nnWflmfcAdsGuKdsK5KNUFjUTYhEnu0k5bZOVg4SlN4EjFtcrwGdSZT8-/exec" placeholder="Google Apps Script Web App URL" />
+      <button id="saveUrlBtn">שמור כתובת</button>
+      <button id="refreshBtn">רענון</button>
+    </div>
+  </header>
+
+  <div class="banner-container">
+    <img src="Banner.png" alt="בנר" class="banner-image" />
+  </div>
+
+  <main class="dashboard-shell">
+  
+  <div class="tabs-container">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="dashboard">📊 דשבורד</button>
+      <button class="tab-btn" data-tab="entries">📋 יומן אירועים</button>
+      <button class="tab-btn" data-tab="status">תמונת מצב</button>
+      <button class="tab-btn" data-tab="map">מפה</button>
+      <button class="tab-btn" data-tab="evacuees">🏘️ מפונים</button>
+      <button class="tab-btn" data-tab="infrastructure">⚡ תשתיות</button>
+      <button class="tab-btn" data-tab="shelters">🏠 מקלטים</button>
+      <button class="tab-btn" data-tab="hotels">🏨 מלונות</button>
+      <button class="tab-btn" data-tab="sitrep">עיקרי הערכת מצב</button>
+      <button class="tab-btn" data-tab="users">👥 ניהול משתמשים</button>
+    </div>
+  </div>
+
+  <!-- TAB: דשבורד -->
+  <div id="dashboard-tab" class="tab-content active">
+    <section class="dashboard-kpis" id="dashboard-kpis-row">
+      <div class="dash-kpi" id="dkpi-events"><div class="dkpi-val">—</div><div class="dkpi-label">סה"כ אירועים</div></div>
+      <div class="dash-kpi" id="dkpi-open"><div class="dkpi-val">—</div><div class="dkpi-label">אירועים פתוחים</div></div>
+      <div class="dash-kpi" id="dkpi-injured"><div class="dkpi-val">—</div><div class="dkpi-label">פצועים</div></div>
+      <div class="dash-kpi" id="dkpi-evacuees"><div class="dkpi-val">—</div><div class="dkpi-label">מפונים רשומים</div></div>
+      <div class="dash-kpi" id="dkpi-shelters"><div class="dkpi-val">—</div><div class="dkpi-label">מקלטים פעילים</div></div>
+      <div class="dash-kpi" id="dkpi-infra"><div class="dkpi-val">—</div><div class="dkpi-label">תשתיות מושבתות</div></div>
+    </section>
+
+    <div class="charts-grid">
+      <div class="chart-card">
+        <h3>אירועים לפי קטגוריה</h3>
+        <canvas id="chart-categories" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>אירועים לפי שעה (24 שעות)</h3>
+        <canvas id="chart-timeline" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>מצב תושבים</h3>
+        <canvas id="chart-residents" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>תפוסת מקלטים</h3>
+        <canvas id="chart-shelters" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: יומן אירועים -->
+  <div id="entries-tab" class="tab-content">
+  <section class="panel operator-panel">
+    <div class="panel-head">
+      <h2>תחנת הזנה מרכזית</h2>
+      <div class="auto-refresh">
+        <label>
+          <input id="autoRefresh" type="checkbox" checked />
+          עדכון אוטומטי כל 5 שניות
+        </label>
+        <span id="lastUpdated">לא עודכן עדיין</span>
+      </div>
+    </div>
+
+    <form id="eventForm" class="event-form">
+      <select id="performerInput" required>
+        <option value="">בחר מבצע...</option>
+        <option value="מבצעים">מבצעים</option>
+        <option value="אוכלוסיה">אוכלוסיה</option>
+        <option value="מכלול מנכ״ל">מכלול מנכ״ל</option>
+        <option value="מידע לציבור">מידע לציבור</option>
+        <option value="קהילה">קהילה</option>
+        <option value="תשתיות">תשתיות</option>
+        <option value="לוגיסטיקה">לוגיסטיקה</option>
+      </select>
+      <input id="locationInput" type="text" placeholder="מיקום" />
+      <select id="classificationInput">
+        <option value="תשתיות">תשתיות</option>
+        <option value="אוכלוסיה">אוכלוסיה</option>
+        <option value="קהילה">קהילה</option>
+        <option value="הון אנושי">הון אנושי</option>
+        <option value="מבצעים">מבצעים</option>
+        <option value="הנדסה">הנדסה</option>
+      </select>
+      <select id="statusInput">
+        <option value="חירום">חירום</option>
+        <option value="בטיפול">בטיפול</option>
+        <option value="נסגר">נסגר</option>
+      </select>
+      <input id="sourceInput" type="text" value="מוקד מרכזי" placeholder="מקור" />
+      <textarea id="messageInput" rows="2" placeholder="תיאור האירוע" required></textarea>
+      <button type="submit">שלח אירוע</button>
+    </form>
+    <div id="formStatus" class="form-status"></div>
+  </section>
+
+  <section class="kpis">
+    <div class="card"><div class="label">סה"כ אירועים</div><div id="kpiTotal" class="value">0</div></div>
+    <div class="card"><div class="label">אירועים ב-24 שעות</div><div id="kpi24h" class="value">0</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>אירועים אחרונים</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>זמן</th>
+          <th>סטטוס</th>
+          <th>סיווג</th>
+          <th>שולח</th>
+          <th>הודעה</th>
+          <th>מיקום</th>
+          <th>סוג צ'אט</th>
+          <th>מקור</th>
+        </tr>
+      </thead>
+      <tbody id="eventsBody">
+        <tr><td colspan="8">אין נתונים</td></tr>
+      </tbody>
+    </table>
+  </section>
+  </div>
+
+  <!-- TAB: תמונת מצב -->
+  <div id="status-tab" class="tab-content">
+    <section class="panel status-dashboard-panel">
+      <div class="panel-head">
+        <h2>📊 תמונת מצב</h2>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span id="statusSyncStatus" class="sync-status sync-status-warn">⚠️ סטטוס סנכרון לא ידוע</span>
+          <button id="addStatusCard" class="btn-secondary">+ הוסף קובייה חדשה</button>
+        </div>
+      </div>
+
+      <section class="status-summary-kpis">
+        <div class="card"><div class="label">סה"כ פצועים</div><div id="statusKpiInjured" class="value">0</div></div>
+        <div class="card"><div class="label">מספר זירות</div><div id="statusKpiScenes" class="value">0</div></div>
+        <div class="card"><div class="label">מנותקי קשר</div><div id="statusKpiDisconnected" class="value">0</div></div>
+        <div class="card"><div class="label">מבנים שנפגעו</div><div id="statusKpiDamaged" class="value">0</div></div>
+      </section>
+
+      <div id="statusCardsContainer" class="status-cards-grid">
+        <!-- קוביות יתווספו כאן -->
+      </div>
+    </section>
+  </div>
+
+  <!-- TAB: מפה / GIS -->
+  <div id="map-tab" class="tab-content">
+    <section class="panel map-panel">
+      <div class="panel-head">
+        <h2>🗺️ מפה ותיוק אירועים</h2>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button id="openBatYamGisBtn" class="btn-secondary" type="button">GIS בת ים</button>
+          <button id="mapExportBtn" class="btn-secondary" type="button">📷 ייצא PNG</button>
+          <button id="mapPrintBtn" class="btn-secondary" type="button">🖨️ הדפס מפה</button>
+          <button id="mapUndoBtn" class="btn-secondary" type="button">הסר נקודה אחרונה</button>
+          <button id="mapResetBtn" class="btn-secondary" type="button">אפס סימון</button>
+          <span id="mapHintText">לחץ על המפה כדי לסמן מיקום בתצ"א.</span>
+        </div>
+      </div>
+      <!-- בחירת סוג סימון -->
+      <div class="marker-type-toolbar">
+        <span class="marker-type-label">סוג סימון:</span>
+        <div class="marker-type-chips" id="markerTypeChips">
+          <button class="marker-chip active" data-type="rocket">💥 נפילת רקטה</button>
+          <button class="marker-chip" data-type="rescue">🚑 זירת חילוץ</button>
+          <button class="marker-chip" data-type="assembly">🏕️ נקודת כינוס</button>
+          <button class="marker-chip" data-type="damaged_building">🏚️ בניין פגוע</button>
+          <button class="marker-chip" data-type="electric">⚡ תשתית חשמל</button>
+          <button class="marker-chip" data-type="police_station">👮 תחנת משטרה</button>
+          <button class="marker-chip" data-type="police_hq">🚔 חפ"ק משטרה</button>
+          <button class="marker-chip" data-type="gas">🔥 תשתית גז</button>
+          <button class="marker-chip" data-type="water">💧 תשתית מים</button>
+          <button class="marker-chip" data-type="custom">✏️ מותאם אישית</button>
+        </div>
+        <div id="customMarkerFields" class="custom-marker-fields" style="display:none">
+          <input id="customMarkerEmoji" type="text" placeholder="😀" maxlength="4" class="emoji-input" />
+          <input id="customMarkerLabel" type="text" placeholder="תיאור הסימון" style="flex:1" />
+        </div>
+      </div>
+
+      <div class="map-toolbar">
+        <div class="map-search-row">
+          <input id="mapAddressInput" type="text" placeholder="הזן כתובת בבת ים" />
+          <button id="mapSearchBtn" type="button">חפש כתובת</button>
+        </div>
+        <div id="mapSearchStatus" class="map-search-status">חיפוש כתובת ימקד את התצ&quot;א ויאפשר סימון נקודות בזירה.</div>
+        <div id="mapSearchResults" class="map-search-results"></div>
+      </div>
+      <div class="map-grid">
+        <div class="map-canvas-column">
+          <div id="mapContainer" class="map-container"></div>
+          <div class="map-details">
+            <div>מיקום נבחר: <strong id="mapSelectedCoordinates">לא נבחר</strong></div>
+            <div>כתובת פעילה: <strong id="mapSelectedLabel">-</strong></div>
+            <div>מספר נקודות בזירה: <strong id="mapPointsCount">0</strong></div>
+          </div>
+          <div class="map-points-panel">
+            <div class="map-points-head">
+              <strong>נקודות שסומנו</strong>
+              <span>לחיצה על המפה מוסיפה נקודה חדשה.</span>
+            </div>
+            <div id="mapPointsList" class="map-points-list">
+              <div class="map-empty-state">עדיין לא סומנו נקודות.</div>
+            </div>
+          </div>
+        </div>
+        <aside class="map-side-panel">
+          <!-- מרכזי משפחות -->
+          <div class="map-side-card">
+            <div style="display:flex; justify-content:space-between; align-items:center">
+              <h3>🏢 מרכזי משפחות</h3>
+              <button class="btn-secondary" style="padding:5px 10px; font-size:0.8rem" onclick="openFamilyCenterManager()">ניהול</button>
+            </div>
+            <p>3 המרכזים הקרובים לנקודת הפגיעה הנבחרת.</p>
+            <div id="nearestCentersPanel" class="nearest-centers-panel">
+              <div class="map-empty-state">סמן נקודת פגיעה על המפה לחישוב קירבה.</div>
+            </div>
+          </div>
+          <!-- GIS עירוני -->
+          <div class="map-side-card">
+            <h3>GIS עירוני</h3>
+            <p style="color:#94a3b8; font-size:0.88rem; margin-bottom:14px">
+              GIS העירוני נפתח בחלון נפרד עקב הגבלות אבטחה של הדפדפן (X-Frame-Options).
+            </p>
+            <div style="display:flex; flex-direction:column; gap:10px">
+              <button id="openBatYamGisFullBtn" style="padding:12px; font-size:0.95rem; background:linear-gradient(135deg,#2563eb,#0891b2)">
+                🗺️ פתח GIS בת ים — טאב חדש
+              </button>
+              <button id="openBatYamGisSideBtn" class="btn-secondary" style="padding:10px">
+                📐 פתח GIS בחלון צד
+              </button>
+            </div>
+            <div style="margin-top:14px; padding:12px; background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.15); border-radius:10px; font-size:0.82rem; color:#64748b; line-height:1.6">
+              💡 לשימוש מקביל: הצב את חלון ה-GIS לצד הדשבורד ועיין בשכבות המידע תוך כדי סימון על המפה.
+            </div>
+          </div>
+        </aside>
+      </div>
+      <div style="margin-top:12px; color:#cbd5e1; font-size:0.95rem;">
+        אפשר לחפש כתובת בבת ים, להתמקד מיד על התצ&quot;א, ולסמן כמה נקודות במרחב. אם השרת תומך בשדות <code>latitude</code>/<code>longitude</code>, הנקודה האחרונה תישלח עם האירוע.
+      </div>
+    </section>
+  </div>
+
+  <!-- TAB: עיקרי הערכת מצב -->
+  <div id="sitrep-tab" class="tab-content">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>🧭 עיקרי הערכת מצב</h2>
+        <button type="button" id="openSitrepEditorBtn">עדכון הערכת מצב</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>הערכת מצב אחרונה</h2>
+      <div id="sitrepLatestContainer">אין הערכת מצב שמורה</div>
+    </section>
+  </div>
+  <!-- TAB: מפונים -->
+  <div id="evacuees-tab" class="tab-content">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>🏘️ ניהול מפונים</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+          <span id="evacuees-impact-label" style="color:#94a3b8; font-size:0.88rem">לא נבחרה נקודת פגיעה</span>
+          <button class="btn-secondary write-only" onclick="openAddResidentModal()">+ הוסף תושב</button>
+          <label class="btn-secondary write-only" style="cursor:pointer">
+            📥 ייבוא CSV/Excel
+            <input type="file" id="residentsImportFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="importResidentsFile(this.files[0])" />
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- תת-לשוניות רדיוס -->
+    <div class="sub-tabs-container">
+      <div class="sub-tabs">
+        <button class="sub-tab-btn active" data-radius="100">עד 100 מ'</button>
+        <button class="sub-tab-btn" data-radius="200">100–200 מ'</button>
+        <button class="sub-tab-btn" data-radius="500">200–500 מ'</button>
+        <button class="sub-tab-btn" data-radius="all">כל התושבים</button>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div id="evacuees-table-container">
+        <p style="color:#94a3b8; padding:20px">טוען נתוני תושבים...</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- TAB: תשתיות -->
+  <div id="infrastructure-tab" class="tab-content">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>⚡ מצב תשתיות</h2>
+        <button class="btn-secondary write-only" onclick="openAddInfraModal()">+ הוסף פריט תשתית</button>
+      </div>
+    </section>
+    <section class="panel">
+      <div id="infra-table-container">
+        <p style="color:#94a3b8; padding:20px">טוען...</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- TAB: מקלטים -->
+  <div id="shelters-tab" class="tab-content">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>🏠 ניהול מקלטים ומרכזי פינוי</h2>
+        <button class="btn-secondary write-only" onclick="openAddShelterModal()">+ הוסף מקלט</button>
+      </div>
+    </section>
+    <div id="shelters-grid" class="shelters-grid">
+      <p style="color:#94a3b8; padding:20px">טוען...</p>
+    </div>
+  </div>
+
+  <!-- TAB: מלונות -->
+  <div id="hotels-tab" class="tab-content">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>🏨 ניהול מלונות</h2>
+        <div style="display:flex; gap:8px; align-items:center">
+          <select id="hotelFilterSelect" onchange="renderHotelsTab()" style="padding:8px 12px; min-width:160px">
+            <option value="all">כל המלונות</option>
+          </select>
+        </div>
+      </div>
+    </section>
+    <div id="hotels-cards-container">
+      <p style="color:#94a3b8; padding:20px">טוען נתוני מלונות...</p>
+    </div>
+  </div>
+
+  <!-- TAB: ניהול משתמשים (admin בלבד) -->
+  <div id="users-tab" class="tab-content">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>👥 ניהול משתמשים</h2>
+        <button onclick="openUserManager()" class="write-only">+ הוסף / ערוך משתמשים</button>
+      </div>
+      <p style="color:#94a3b8; margin-top:8px; font-size:0.9rem">
+        ניהול הרשאות גישה, סיסמאות, ונעילת חשבונות. גישה למנהל מערכת בלבד.
+      </p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>📋 לוג ביקורת</h2>
+        <button class="btn-secondary write-only" onclick="exportAuditLog()">📥 ייצוא CSV</button>
+      </div>
+      <p style="color:#94a3b8; margin:8px 0 14px; font-size:0.88rem">
+        רישום כל הפעולות הרגישות — כניסות, עריכות, מחיקות ושינויי הרשאות. מוצגות 150 הרשומות האחרונות.
+      </p>
+      <div id="audit-log-container" style="margin-top:8px">
+        <p style="color:#94a3b8">טוען...</p>
+      </div>
+    </section>
+  </div>
+
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="auth.js"></script>
+  <script src="modules.js"></script>
+  <script src="emergency_dashboard.js"></script>
+</body>
+</html>
