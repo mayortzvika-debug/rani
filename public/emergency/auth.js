@@ -373,7 +373,7 @@ async function ensureDefaultAdmin() {
     role:               'admin',
     passwordHash:       hash,
     salt,
-    mustChangePassword: true,
+    mustChangePassword: false,
     locked:             false,
     createdAt:          new Date().toISOString(),
     lastLogin:          null,
