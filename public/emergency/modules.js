@@ -278,54 +278,125 @@ function deleteFamilyCenter(id) {
 // ============================================================
 // PART 2: SHELTERS
 // ============================================================
+const SHELTER_CATEGORIES = {
+  public:          '🏢 מקלטים ציבוריים',
+  school_external: '🏫 מקלטי בתי ספר חיצוניים',
+  school_internal: '🏫 מקלטי בתי ספר פנימיים',
+  parking:         '🅿️ חניונים',
+};
+
+const SHELTER_CATEGORY_ICONS = {
+  public: '🏢', school_external: '🏫', school_internal: '🏫', parking: '🅿️'
+};
+
 function getShelters()      { return safeGet(SHELTERS_KEY); }
 function saveShelters(arr)  { safeSet(SHELTERS_KEY, arr); }
 
+let activeShelterCategory = 'all';
+
 function initSheltersTab() {
+  // כפתורי קטגוריה
+  document.querySelectorAll('#shelter-category-tabs .sub-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#shelter-category-tabs .sub-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeShelterCategory = btn.getAttribute('data-category') || 'all';
+      renderSheltersGrid();
+    });
+  });
   renderSheltersGrid();
 }
 
 function renderSheltersGrid() {
-  const grid     = document.getElementById('shelters-grid');
+  const grid = document.getElementById('shelters-grid');
   if (!grid) return;
-  const shelters = getShelters();
+  let shelters = getShelters();
+
+  if (activeShelterCategory !== 'all') {
+    shelters = shelters.filter(s => s.category === activeShelterCategory);
+  }
 
   if (!shelters.length) {
-    grid.innerHTML = '<div class="map-empty-state" style="margin:20px">אין מקלטים מוגדרים. לחץ "+ הוסף מקלט".</div>';
+    const catLabel = activeShelterCategory === 'all' ? '' : ` בקטגוריה "${SHELTER_CATEGORIES[activeShelterCategory] || activeShelterCategory}"`;
+    grid.innerHTML = `<div class="map-empty-state" style="margin:20px">אין מקלטים מוגדרים${catLabel}. לחץ "+ הוסף מקלט".</div>`;
     return;
   }
 
-  grid.innerHTML = shelters.map(s => {
-    const pct  = s.capacity ? Math.min(100, Math.round((s.current || 0) / s.capacity * 100)) : 0;
-    const pctColor = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f97316' : '#22c55e';
-    const needs = Object.entries(s.needs || {}).filter(([,v]) => v).map(([k]) => SHELTER_NEED_LABELS[k] || k);
+  // קיבוץ לפי קטגוריה אם מוצגות הכל
+  if (activeShelterCategory === 'all') {
+    const grouped = {};
+    Object.keys(SHELTER_CATEGORIES).forEach(k => { grouped[k] = []; });
+    shelters.forEach(s => {
+      const cat = s.category || 'public';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(s);
+    });
 
-    return `
-      <div class="shelter-card">
-        <div class="shelter-header">
+    grid.innerHTML = Object.entries(SHELTER_CATEGORIES).map(([cat, label]) => {
+      const items = grouped[cat] || [];
+      if (!items.length) return '';
+      return `
+        <div style="grid-column:1/-1; margin-top:16px; margin-bottom:4px">
+          <h3 style="color:#38bdf8; font-size:1rem; margin:0">${label}</h3>
+          <hr style="border-color:rgba(56,189,248,0.2); margin:6px 0 12px" />
+        </div>
+        ${items.map(s => shelterCardHTML(s)).join('')}
+      `;
+    }).join('');
+  } else {
+    grid.innerHTML = shelters.map(s => shelterCardHTML(s)).join('');
+  }
+}
+
+function shelterCardHTML(s) {
+  const pct      = s.capacity ? Math.min(100, Math.round((s.current || 0) / s.capacity * 100)) : 0;
+  const pctColor = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f97316' : '#22c55e';
+  const needs    = Object.entries(s.needs || {}).filter(([,v]) => v).map(([k]) => SHELTER_NEED_LABELS[k] || k);
+  const openBadge = s.isOpen === false
+    ? '<span style="background:rgba(239,68,68,0.2); color:#fca5a5; padding:2px 8px; border-radius:12px; font-size:0.78rem">🔴 סגור</span>'
+    : '<span style="background:rgba(34,197,94,0.2); color:#86efac; padding:2px 8px; border-radius:12px; font-size:0.78rem">🟢 פתוח</span>';
+  const catIcon  = SHELTER_CATEGORY_ICONS[s.category] || '🏠';
+
+  return `
+    <div class="shelter-card">
+      <div class="shelter-header">
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:1.1rem">${catIcon}</span>
           <strong>${mEscape(s.name)}</strong>
-          <div style="display:flex; gap:6px">
-            <button class="btn-secondary" style="padding:3px 8px; font-size:0.78rem" onclick="openEditShelterModal('${s.id}')">✏️ ערוך</button>
-            <button class="btn-secondary" style="padding:3px 8px; font-size:0.78rem; background:rgba(239,68,68,0.18); color:#fca5a5" onclick="deleteShelter('${s.id}')">🗑️</button>
-          </div>
+          ${openBadge}
         </div>
-        <div style="color:#94a3b8; font-size:0.85rem; margin-bottom:8px">${mEscape(s.address)}</div>
-        <div class="shelter-capacity-row">
-          <span>תפוסה: <strong style="color:${pctColor}">${s.current || 0}</strong> / ${s.capacity || '?'}</span>
-          <span style="color:${pctColor}; font-weight:600">${pct}%</span>
+        <div style="display:flex; gap:6px">
+          <button class="btn-secondary" style="padding:3px 8px; font-size:0.78rem" onclick="toggleShelterOpen('${s.id}')">${s.isOpen === false ? '🔓 פתח' : '🔒 סגור'}</button>
+          <button class="btn-secondary" style="padding:3px 8px; font-size:0.78rem" onclick="openEditShelterModal('${s.id}')">✏️ ערוך</button>
+          <button class="btn-secondary" style="padding:3px 8px; font-size:0.78rem; background:rgba(239,68,68,0.18); color:#fca5a5" onclick="deleteShelter('${s.id}')">🗑️</button>
         </div>
-        <div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%; background:${pctColor}"></div></div>
-        ${needs.length ? `<div class="shelter-needs">🆘 נדרש: ${needs.map(n => `<span class="need-chip">${n}</span>`).join('')}</div>` : ''}
-        <div class="shelter-populations" style="margin-top:8px; font-size:0.82rem; color:#94a3b8">
-          ${s.elderly ? `👴 קשישים: ${s.elderly}  ` : ''}
-          ${s.disabled ? `♿ נכים: ${s.disabled}  ` : ''}
-          ${s.infants ? `👶 תינוקות: ${s.infants}  ` : ''}
-          ${s.animals ? `🐾 בע"ח: ${s.animals}` : ''}
-        </div>
-        ${s.notes ? `<div style="margin-top:8px; font-size:0.85rem; color:#cbd5e1; background:rgba(15,23,42,0.4); padding:8px; border-radius:8px">${mEscape(s.notes)}</div>` : ''}
       </div>
-    `;
-  }).join('');
+      <div style="color:#94a3b8; font-size:0.85rem; margin-bottom:8px">${mEscape(s.address)}</div>
+      ${s.size ? `<div style="font-size:0.83rem; color:#cbd5e1; margin-bottom:6px">📐 שטח: <strong>${mEscape(String(s.size))}</strong> מ"ר</div>` : ''}
+      <div class="shelter-capacity-row">
+        <span>תפוסה: <strong style="color:${pctColor}">${s.current || 0}</strong> / ${s.capacity || '?'}</span>
+        <span style="color:${pctColor}; font-weight:600">${pct}%</span>
+      </div>
+      <div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%; background:${pctColor}"></div></div>
+      ${needs.length ? `<div class="shelter-needs">🆘 נדרש: ${needs.map(n => `<span class="need-chip">${n}</span>`).join('')}</div>` : ''}
+      <div class="shelter-populations" style="margin-top:8px; font-size:0.82rem; color:#94a3b8">
+        ${s.elderly  ? `👴 קשישים: ${s.elderly}  ` : ''}
+        ${s.disabled ? `♿ נכים: ${s.disabled}  ` : ''}
+        ${s.infants  ? `👶 תינוקות: ${s.infants}  ` : ''}
+        ${s.animals  ? `🐾 בע"ח: ${s.animals}` : ''}
+      </div>
+      ${s.notes ? `<div style="margin-top:8px; font-size:0.85rem; color:#cbd5e1; background:rgba(15,23,42,0.4); padding:8px; border-radius:8px">${mEscape(s.notes)}</div>` : ''}
+    </div>
+  `;
+}
+
+function toggleShelterOpen(id) {
+  const shelters = getShelters();
+  const s = shelters.find(x => x.id === id);
+  if (!s) return;
+  s.isOpen = s.isOpen === false ? true : false;
+  saveShelters(shelters);
+  renderSheltersGrid();
 }
 
 const SHELTER_NEED_LABELS = {
@@ -333,23 +404,102 @@ const SHELTER_NEED_LABELS = {
   generator:'גנרטור', water:'מים', hygiene:'היגיינה'
 };
 
+// ייבוא קובץ מקלטים (CSV / Excel)
+async function importSheltersFile(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  let rows = [];
+
+  try {
+    if (ext === 'csv') {
+      const text = await file.text();
+      const parsed = window.Papa?.parse(text, { header: true, skipEmptyLines: true });
+      rows = parsed?.data || [];
+    } else {
+      const buf = await file.arrayBuffer();
+      const wb  = window.XLSX?.read(buf, { type: 'array' });
+      if (!wb) { alert('ספריית Excel לא נטענה'); return; }
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      rows = window.XLSX.utils.sheet_to_json(ws);
+    }
+  } catch (err) {
+    alert('שגיאה בקריאת הקובץ: ' + err.message);
+    return;
+  }
+
+  if (!rows.length) { alert('לא נמצאו שורות בקובץ'); return; }
+
+  // Map עמודות גמיש
+  const getVal = (row, keys) => {
+    for (const k of keys) {
+      const found = Object.keys(row).find(rk => rk.trim() === k || rk.trim().toLowerCase() === k.toLowerCase());
+      if (found && row[found] !== undefined && row[found] !== '') return String(row[found]).trim();
+    }
+    return '';
+  };
+
+  const SHELTER_CAT_MAP = {
+    'ציבורי': 'public', 'public': 'public',
+    'חיצוני': 'school_external', 'school_external': 'school_external', 'בי"ס חיצוני': 'school_external',
+    'פנימי': 'school_internal', 'school_internal': 'school_internal', 'בי"ס פנימי': 'school_internal',
+    'חניון': 'parking', 'parking': 'parking',
+  };
+
+  const imported = rows.map(row => ({
+    id:       genId(),
+    name:     getVal(row, ['שם', 'name', 'שם מקלט']),
+    address:  getVal(row, ['כתובת', 'address']),
+    category: SHELTER_CAT_MAP[getVal(row, ['קטגוריה', 'category', 'סוג'])] || 'public',
+    capacity: Number(getVal(row, ['קיבולת', 'capacity', 'קיבולת מקסימלית'])) || 0,
+    current:  Number(getVal(row, ['תפוסה', 'current', 'תפוסה נוכחית'])) || 0,
+    size:     getVal(row, ['שטח', 'size', 'גודל']),
+    isOpen:   getVal(row, ['פתוח', 'open', 'isOpen']).toLowerCase() !== 'לא' && getVal(row, ['פתוח', 'open', 'isOpen']).toLowerCase() !== 'false',
+    notes:    getVal(row, ['הערות', 'notes']),
+    needs:    {},
+  })).filter(s => s.name);
+
+  if (!imported.length) { alert('לא נמצאו שורות תקינות (חובה: עמודת "שם")'); return; }
+
+  const existing = getShelters();
+  saveShelters([...existing, ...imported]);
+  renderSheltersGrid();
+
+  // אפס את input הקובץ
+  const inp = document.getElementById('sheltersImportFile');
+  if (inp) inp.value = '';
+
+  alert(`✅ יובאו ${imported.length} מקלטים בהצלחה`);
+}
+
 function openAddShelterModal(existing) {
   const s   = existing || {};
   const ovl = document.createElement('div');
   ovl.className = 'modal-overlay';
   ovl.id = 'shelter-modal-overlay';
   ovl.innerHTML = `
-    <div class="modal" style="max-width:560px; width:96%">
+    <div class="modal" style="max-width:580px; width:96%">
       <h3>${s.id ? '✏️ עריכת מקלט' : '🏠 הוסף מקלט'}</h3>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
-        <input id="sh-name"     placeholder="שם המקלט"      value="${mEscape(s.name || '')}" />
-        <input id="sh-address"  placeholder="כתובת"         value="${mEscape(s.address || '')}" />
-        <input id="sh-capacity" placeholder="קיבולת מקסימלית" type="number" min="0" value="${s.capacity || ''}" />
-        <input id="sh-current"  placeholder="תפוסה נוכחית"  type="number" min="0" value="${s.current || ''}" />
-        <input id="sh-elderly"  placeholder="קשישים"        type="number" min="0" value="${s.elderly || ''}" />
-        <input id="sh-disabled" placeholder="נכים"          type="number" min="0" value="${s.disabled || ''}" />
-        <input id="sh-infants"  placeholder="תינוקות"       type="number" min="0" value="${s.infants || ''}" />
-        <input id="sh-animals"  placeholder="בע&quot;ח"    type="number" min="0" value="${s.animals || ''}" />
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px">
+        <input id="sh-name"     placeholder="שם המקלט"           value="${mEscape(s.name || '')}" />
+        <input id="sh-address"  placeholder="כתובת"              value="${mEscape(s.address || '')}" />
+        <select id="sh-category">
+          ${Object.entries(SHELTER_CATEGORIES).map(([v, l]) =>
+            `<option value="${v}" ${(s.category || 'public') === v ? 'selected' : ''}>${l}</option>`
+          ).join('')}
+        </select>
+        <div style="display:flex; align-items:center; gap:8px">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.9rem; color:#cbd5e1">
+            <input type="checkbox" id="sh-isopen" ${s.isOpen !== false ? 'checked' : ''} style="accent-color:#38bdf8" />
+            פתוח כעת
+          </label>
+        </div>
+        <input id="sh-capacity" placeholder="קיבולת מקסימלית"    type="number" min="0" value="${s.capacity || ''}" />
+        <input id="sh-current"  placeholder="תפוסה נוכחית"       type="number" min="0" value="${s.current || ''}" />
+        <input id="sh-size"     placeholder='שטח (מ"ר)'           value="${mEscape(s.size || '')}" />
+        <input id="sh-elderly"  placeholder="קשישים"             type="number" min="0" value="${s.elderly || ''}" />
+        <input id="sh-disabled" placeholder="נכים"               type="number" min="0" value="${s.disabled || ''}" />
+        <input id="sh-infants"  placeholder="תינוקות"            type="number" min="0" value="${s.infants || ''}" />
+        <input id="sh-animals"  placeholder="בע&quot;ח"         type="number" min="0" value="${s.animals || ''}" />
       </div>
       <div style="margin:14px 0 10px; font-size:0.88rem; color:#94a3b8">צרכים דחופים:</div>
       <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px">
@@ -384,10 +534,13 @@ function saveShelterFromModal(existingId) {
 
   const record = {
     id:       existingId || genId(),
-    name:     document.getElementById('sh-name')?.value.trim()   || '',
-    address:  document.getElementById('sh-address')?.value.trim() || '',
+    name:     document.getElementById('sh-name')?.value.trim()     || '',
+    address:  document.getElementById('sh-address')?.value.trim()  || '',
+    category: document.getElementById('sh-category')?.value        || 'public',
+    isOpen:   document.getElementById('sh-isopen')?.checked !== false,
     capacity: Number(document.getElementById('sh-capacity')?.value) || 0,
     current:  Number(document.getElementById('sh-current')?.value)  || 0,
+    size:     document.getElementById('sh-size')?.value.trim()      || '',
     elderly:  Number(document.getElementById('sh-elderly')?.value)  || 0,
     disabled: Number(document.getElementById('sh-disabled')?.value) || 0,
     infants:  Number(document.getElementById('sh-infants')?.value)  || 0,

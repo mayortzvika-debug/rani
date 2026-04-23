@@ -226,6 +226,10 @@ function onLoginSuccess() {
   applyRolePermissions();
   injectUserBar();
   startInactivityTimer();
+  // אתחול הדשבורד לאחר כניסה מוצלחת
+  setTimeout(() => {
+    if (typeof window.__afterLogin === 'function') window.__afterLogin();
+  }, 50);
 }
 
 function setCurrentUser(user) {
