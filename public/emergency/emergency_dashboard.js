@@ -1141,15 +1141,24 @@ function showAddCardModal(card = null, idx = null) {
       <input type="text" id="cardTitle" placeholder="כותרת" value="${escapeHtml(card?.title || '')}">
 
       <!-- מפת מיקום הזירה -->
-      <div style="margin:12px 0 4px; color:#94a3b8; font-size:0.88rem">🗺️ מיקום הזירה — לחץ על המפה לסימון:</div>
-      <div id="cardMapContainer" style="height:220px; border-radius:8px; overflow:hidden; border:1px solid rgba(148,163,184,0.2); margin-bottom:4px"></div>
-      <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; font-size:0.82rem">
-        <span id="cardMapStatus" style="color:#94a3b8; flex:1">${card?.lat && card?.lng ? `📍 ${Number(card.lat).toFixed(4)}, ${Number(card.lng).toFixed(4)}` : 'לא סומן מיקום'}</span>
-        <button type="button" id="cardMapSearchBtn" style="padding:4px 10px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); border-radius:6px; cursor:pointer; font-size:0.8rem">🔍 חפש כתובת</button>
-        <button type="button" id="cardMapClearBtn" style="padding:4px 10px; background:rgba(239,68,68,0.12); color:#fca5a5; border:1px solid rgba(239,68,68,0.2); border-radius:6px; cursor:pointer; font-size:0.8rem">✕ נקה</button>
+      <div style="margin:12px 0 6px; color:var(--text-2,#475569); font-size:0.88rem; font-weight:600">🗺️ מיקום הזירה — בחר סוג סימון ולחץ על המפה:</div>
+      <!-- בחירת סוג סימון -->
+      <div id="cardMarkerTypeBar" style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px">
+        ${Object.entries(MARKER_TYPES).map(([k,v]) => `
+          <button type="button" class="card-marker-type-btn${(card?.markerType||'rocket')===k?' active':''}" data-type="${k}"
+            style="padding:3px 9px; border-radius:20px; border:2px solid ${v.color}; background:${(card?.markerType||'rocket')===k ? v.color : 'transparent'}; color:${(card?.markerType||'rocket')===k ? '#fff' : v.color}; cursor:pointer; font-size:0.78rem; font-weight:600; transition:all .15s">
+            ${v.emoji} ${v.label}
+          </button>`).join('')}
       </div>
-      <div id="cardMapSearchRow" style="display:none; margin-bottom:10px; display:flex; gap:6px">
-        <input id="cardMapSearchInput" type="text" placeholder="הזן כתובת לחיפוש..." style="flex:1; padding:6px 10px; background:rgba(15,23,42,0.6); border:1px solid rgba(148,163,184,0.3); color:#f8fafc; border-radius:6px; font-size:0.85rem" />
+      <input type="hidden" id="cardMarkerType" value="${card?.markerType || 'rocket'}" />
+      <div id="cardMapContainer" style="height:240px; border-radius:8px; overflow:hidden; border:1px solid var(--border,#dde3ed); margin-bottom:6px"></div>
+      <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px; font-size:0.82rem">
+        <span id="cardMapStatus" style="color:var(--text-2,#475569); flex:1">${card?.lat && card?.lng ? `📍 ${Number(card.lat).toFixed(4)}, ${Number(card.lng).toFixed(4)}` : 'לא סומן מיקום'}</span>
+        <button type="button" id="cardMapSearchBtn" style="padding:4px 10px; background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:6px; cursor:pointer; font-size:0.8rem">🔍 חפש כתובת</button>
+        <button type="button" id="cardMapClearBtn" style="padding:4px 10px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:6px; cursor:pointer; font-size:0.8rem">✕ נקה</button>
+      </div>
+      <div id="cardMapSearchRow" style="display:none; margin-bottom:10px; gap:6px">
+        <input id="cardMapSearchInput" type="text" placeholder="הזן כתובת לחיפוש..." style="flex:1; padding:6px 10px; background:#fff; border:1px solid var(--border,#dde3ed); color:#0f172a; border-radius:6px; font-size:0.85rem" />
         <button type="button" id="cardMapSearchGoBtn" style="padding:6px 14px; font-size:0.85rem">חפש</button>
       </div>
       <input type="hidden" id="cardLat" value="${card?.lat || ''}" />
@@ -1384,8 +1393,10 @@ function initCardViewMaps(cards) {
         keyboard: false,
         attributionControl: false,
       });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(vm);
-      L.marker([Number(card.lat), Number(card.lng)]).addTo(vm);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '© Esri' }).addTo(vm);
+      const mt = MARKER_TYPES[card.markerType] || MARKER_TYPES.rocket;
+      const icon = L.divIcon({ html: `<div style="font-size:20px;line-height:1;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${mt.emoji}</div>`, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
+      L.marker([Number(card.lat), Number(card.lng)], { icon }).addTo(vm);
     } catch {}
   });
 }
@@ -1401,16 +1412,49 @@ function initCardMap(card) {
     ? [Number(card.lat), Number(card.lng)]
     : [32.017, 34.750]; // מרכז בת ים
 
-  cardModalMap = L.map(container, { center, zoom: 16 });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OSM', maxZoom: 19
+  cardModalMap = L.map(container, { center, zoom: 17 });
+  // תצ"א — Esri World Imagery
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri', maxZoom: 19
   }).addTo(cardModalMap);
 
   let cardMarker = null;
+  let activeCardMarkerType = document.getElementById('cardMarkerType')?.value || 'rocket';
+
+  // עדכון כפתורי סוג סימון
+  document.querySelectorAll('.card-marker-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeCardMarkerType = btn.dataset.type;
+      document.getElementById('cardMarkerType').value = activeCardMarkerType;
+      const mt = MARKER_TYPES[activeCardMarkerType] || MARKER_TYPES.rocket;
+      document.querySelectorAll('.card-marker-type-btn').forEach(b => {
+        const bmt = MARKER_TYPES[b.dataset.type] || MARKER_TYPES.rocket;
+        b.style.background = b.dataset.type === activeCardMarkerType ? bmt.color : 'transparent';
+        b.style.color = b.dataset.type === activeCardMarkerType ? '#fff' : bmt.color;
+        b.classList.toggle('active', b.dataset.type === activeCardMarkerType);
+      });
+      // עדכן סמן קיים
+      if (cardMarker) {
+        const latLng = cardMarker.getLatLng();
+        cardModalMap.removeLayer(cardMarker);
+        cardMarker = L.marker([latLng.lat, latLng.lng], { icon: getCardMarkerIcon(activeCardMarkerType) }).addTo(cardModalMap);
+      }
+    });
+  });
+
+  const getCardMarkerIcon = (type) => {
+    const mt = MARKER_TYPES[type] || MARKER_TYPES.rocket;
+    return L.divIcon({
+      html: `<div style="font-size:22px; line-height:1; filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))">${mt.emoji}</div>`,
+      className: '',
+      iconSize: [30, 30],
+      iconAnchor: [15, 15],
+    });
+  };
 
   const setMarker = (lat, lng) => {
     if (cardMarker) cardModalMap.removeLayer(cardMarker);
-    cardMarker = L.marker([lat, lng]).addTo(cardModalMap);
+    cardMarker = L.marker([lat, lng], { icon: getCardMarkerIcon(activeCardMarkerType) }).addTo(cardModalMap);
     document.getElementById('cardLat').value = lat;
     document.getElementById('cardLng').value = lng;
     const status = document.getElementById('cardMapStatus');
@@ -1690,6 +1734,7 @@ async function saveStatusCard(idx) {
   const sceneToolsOther = document.getElementById('sceneToolsOther')?.value.trim() || '';
   const cardLatVal = parseFloat(document.getElementById('cardLat')?.value) || null;
   const cardLngVal = parseFloat(document.getElementById('cardLng')?.value) || null;
+  const cardMarkerTypeVal = document.getElementById('cardMarkerType')?.value || 'rocket';
   const mediaItemsFromLinks = parseMediaItems(document.getElementById('cardMedia')?.value || '');
   const mediaItems = Array.from(new Set([
     ...mediaItemsFromLinks,
@@ -1783,6 +1828,7 @@ async function saveStatusCard(idx) {
     visibility,
     lat: cardLatVal,
     lng: cardLngVal,
+    markerType: cardMarkerTypeVal,
     updated: new Date().toISOString()
   };
 
