@@ -14,16 +14,15 @@ const LOCKOUT_MS        = 30 * 1000;       // 30 שניות
 // ---- הרשאות לפי לשונית ----
 // 'write' = קריאה + כתיבה | 'read' = קריאה בלבד | null = חסום
 const TAB_PERMISSIONS = {
-  dashboard:      { admin:'read',  commander:'read',  info_officer:'read',  dispatcher:'read',  viewer:'read'  },
-  entries:        { admin:'write', commander:'write', info_officer:'read',  dispatcher:'write', viewer:'read'  },
-  status:         { admin:'write', commander:'write', info_officer:'write', dispatcher:'read',  viewer:'read'  },
-  map:            { admin:'write', commander:'write', info_officer:'write', dispatcher:'write', viewer:'read'  },
-  evacuees:       { admin:'write', commander:'write', info_officer:'write', dispatcher:null,    viewer:null    },
-  infrastructure: { admin:'write', commander:'write', info_officer:'read',  dispatcher:'read',  viewer:'read'  },
-  shelters:       { admin:'write', commander:'write', info_officer:'write', dispatcher:'read',  viewer:'read'  },
-  hotels:         { admin:'write', commander:'write', info_officer:'write', dispatcher:null,    viewer:null    },
-  sitrep:         { admin:'write', commander:'write', info_officer:'read',  dispatcher:'read',  viewer:'read'  },
-  users:          { admin:'write', commander:null,    info_officer:null,    dispatcher:null,    viewer:null    },
+  dashboard:    { admin:'read',  commander:'read',  info_officer:'read',  dispatcher:'read',  viewer:'read'  },
+  entries:      { admin:'write', commander:'write', info_officer:'read',  dispatcher:'write', viewer:'read'  },
+  status:       { admin:'write', commander:'write', info_officer:'write', dispatcher:'read',  viewer:'read'  },
+  evacuees:     { admin:'write', commander:'write', info_officer:'write', dispatcher:null,    viewer:null    },
+  shelters:     { admin:'write', commander:'write', info_officer:'write', dispatcher:'read',  viewer:'read'  },
+  hotels:       { admin:'write', commander:'write', info_officer:'write', dispatcher:null,    viewer:null    },
+  ambassadors:  { admin:'read',  commander:'read',  info_officer:'read',  dispatcher:'read',  viewer:'read'  },
+  sitrep:       { admin:'write', commander:'write', info_officer:'read',  dispatcher:'read',  viewer:'read'  },
+  users:        { admin:'write', commander:null,    info_officer:null,    dispatcher:null,    viewer:null    },
 };
 
 const ROLE_LABELS = {

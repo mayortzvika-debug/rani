@@ -75,6 +75,7 @@ const BAT_YAM_CENTER = [32.0231, 34.7503];
 const BAT_YAM_GIS_URL = 'https://v5.gis-net.co.il/v5/batyam';
 const MAX_MEDIA_FILE_SIZE = 8 * 1024 * 1024; // 8MB לפריט
 let statusModalUploadedMediaItems = [];
+let cardModalMap = null; // מפת Leaflet פנימית של מודל הקובייה
 
 ensureDemoEntries();
 refreshBtn.addEventListener('click', loadData);
@@ -517,8 +518,6 @@ function switchTab(tabName) {
 
   if (tabName === 'status') {
     loadStatusCards();
-    // המפה כעת בתוך לשונית תמונת מצב
-    setTimeout(() => initMap(), 100);
   }
 
   if (tabName === 'sitrep') {
@@ -861,6 +860,8 @@ async function loadStatusCards() {
       const cardEl = createStatusCardElement(card, idx);
       statusCardsContainer.appendChild(cardEl);
     });
+    // אתחל מפיות תצוגה קטנות לכרטיסים עם מיקום
+    setTimeout(() => initCardViewMaps(cards), 200);
   } catch (err) {
     statusCards = [];
     updateStatusSummary([]);
@@ -1046,6 +1047,17 @@ function createStatusCardElement(card, idx) {
       🧰 <strong>כלים בזירה:</strong> ${presentTools}
     </div>
 
+    ${card.lat && card.lng ? `
+    <div class="status-media-section" style="margin-bottom:10px">
+      <strong>🗺️ מיקום הזירה:</strong>
+      <div style="margin-top:6px; border-radius:8px; overflow:hidden; border:1px solid rgba(148,163,184,0.15); height:160px" id="cardViewMap_${card.id}"></div>
+      <div style="margin-top:4px; font-size:0.78rem; color:#94a3b8; display:flex; gap:10px">
+        <span>📍 ${Number(card.lat).toFixed(5)}, ${Number(card.lng).toFixed(5)}</span>
+        <a href="https://www.openstreetmap.org/?mlat=${card.lat}&mlon=${card.lng}&zoom=17" target="_blank" rel="noopener" style="color:#38bdf8; text-decoration:none">פתח במפה ↗</a>
+      </div>
+    </div>
+    ` : ''}
+
     ${mediaItems.length ? `
     <div class="status-media-section">
       <strong>📷 מדיה מהזירה:</strong>
@@ -1127,7 +1139,22 @@ function showAddCardModal(card = null, idx = null) {
       <h3>${title}</h3>
       
       <input type="text" id="cardTitle" placeholder="כותרת" value="${escapeHtml(card?.title || '')}">
-      
+
+      <!-- מפת מיקום הזירה -->
+      <div style="margin:12px 0 4px; color:#94a3b8; font-size:0.88rem">🗺️ מיקום הזירה — לחץ על המפה לסימון:</div>
+      <div id="cardMapContainer" style="height:220px; border-radius:8px; overflow:hidden; border:1px solid rgba(148,163,184,0.2); margin-bottom:4px"></div>
+      <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; font-size:0.82rem">
+        <span id="cardMapStatus" style="color:#94a3b8; flex:1">${card?.lat && card?.lng ? `📍 ${Number(card.lat).toFixed(4)}, ${Number(card.lng).toFixed(4)}` : 'לא סומן מיקום'}</span>
+        <button type="button" id="cardMapSearchBtn" style="padding:4px 10px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); border-radius:6px; cursor:pointer; font-size:0.8rem">🔍 חפש כתובת</button>
+        <button type="button" id="cardMapClearBtn" style="padding:4px 10px; background:rgba(239,68,68,0.12); color:#fca5a5; border:1px solid rgba(239,68,68,0.2); border-radius:6px; cursor:pointer; font-size:0.8rem">✕ נקה</button>
+      </div>
+      <div id="cardMapSearchRow" style="display:none; margin-bottom:10px; display:flex; gap:6px">
+        <input id="cardMapSearchInput" type="text" placeholder="הזן כתובת לחיפוש..." style="flex:1; padding:6px 10px; background:rgba(15,23,42,0.6); border:1px solid rgba(148,163,184,0.3); color:#f8fafc; border-radius:6px; font-size:0.85rem" />
+        <button type="button" id="cardMapSearchGoBtn" style="padding:6px 14px; font-size:0.85rem">חפש</button>
+      </div>
+      <input type="hidden" id="cardLat" value="${card?.lat || ''}" />
+      <input type="hidden" id="cardLng" value="${card?.lng || ''}" />
+
       <input type="text" id="cardManagerName" placeholder="שם מנהל הזירה" value="${escapeHtml(card?.managerName || '')}">
 
       <label style="color: #94a3b8; font-size: 0.9rem; display: block; margin: 10px 0;">
@@ -1334,9 +1361,120 @@ function showAddCardModal(card = null, idx = null) {
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeModal();
   });
+  // אתחל מפה פנימית לאחר שה-DOM מוכן
+  setTimeout(() => initCardMap(card), 80);
+}
+
+// מפיות תצוגה קטנות בכרטיסים (read-only)
+function initCardViewMaps(cards) {
+  if (typeof L === 'undefined') return;
+  cards.forEach(card => {
+    if (!card.lat || !card.lng) return;
+    const container = document.getElementById(`cardViewMap_${card.id}`);
+    if (!container || container._leaflet_id) return; // כבר אותחל
+    try {
+      const vm = L.map(container, {
+        center: [Number(card.lat), Number(card.lng)],
+        zoom: 16,
+        zoomControl: false,
+        dragging: false,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        touchZoom: false,
+        keyboard: false,
+        attributionControl: false,
+      });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(vm);
+      L.marker([Number(card.lat), Number(card.lng)]).addTo(vm);
+    } catch {}
+  });
+}
+
+function initCardMap(card) {
+  const container = document.getElementById('cardMapContainer');
+  if (!container || typeof L === 'undefined') return;
+
+  // נקה מפה קודמת אם קיימת
+  if (cardModalMap) { try { cardModalMap.remove(); } catch {} cardModalMap = null; }
+
+  const center = (card?.lat && card?.lng)
+    ? [Number(card.lat), Number(card.lng)]
+    : [32.017, 34.750]; // מרכז בת ים
+
+  cardModalMap = L.map(container, { center, zoom: 16 });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OSM', maxZoom: 19
+  }).addTo(cardModalMap);
+
+  let cardMarker = null;
+
+  const setMarker = (lat, lng) => {
+    if (cardMarker) cardModalMap.removeLayer(cardMarker);
+    cardMarker = L.marker([lat, lng]).addTo(cardModalMap);
+    document.getElementById('cardLat').value = lat;
+    document.getElementById('cardLng').value = lng;
+    const status = document.getElementById('cardMapStatus');
+    if (status) status.textContent = `📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  };
+
+  // אם יש מיקום קיים — הצג marker
+  if (card?.lat && card?.lng) setMarker(Number(card.lat), Number(card.lng));
+
+  cardModalMap.on('click', e => setMarker(e.latlng.lat, e.latlng.lng));
+
+  // כפתור ניקוי
+  document.getElementById('cardMapClearBtn')?.addEventListener('click', () => {
+    if (cardMarker) { cardModalMap.removeLayer(cardMarker); cardMarker = null; }
+    document.getElementById('cardLat').value = '';
+    document.getElementById('cardLng').value = '';
+    const status = document.getElementById('cardMapStatus');
+    if (status) status.textContent = 'לא סומן מיקום';
+  });
+
+  // כפתור חיפוש כתובת
+  const searchBtn = document.getElementById('cardMapSearchBtn');
+  const searchRow = document.getElementById('cardMapSearchRow');
+  const searchGoBtn = document.getElementById('cardMapSearchGoBtn');
+  const searchInput = document.getElementById('cardMapSearchInput');
+
+  searchBtn?.addEventListener('click', () => {
+    if (searchRow) searchRow.style.display = searchRow.style.display === 'flex' ? 'none' : 'flex';
+    cardModalMap.invalidateSize();
+  });
+
+  const doSearch = async () => {
+    const q = searchInput?.value?.trim();
+    if (!q) return;
+    searchGoBtn.disabled = true;
+    searchGoBtn.textContent = '...';
+    try {
+      const proxyBase = window.location.origin + '/api/proxy';
+      const res = await fetch(proxyBase, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q + ', בת ים, ישראל'), method: 'GET' }),
+      });
+      const data = await res.json();
+      if (Array.isArray(data) && data[0]) {
+        const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+        cardModalMap.setView([lat, lng], 18);
+        setMarker(lat, lng);
+        if (searchRow) searchRow.style.display = 'none';
+      } else {
+        alert('כתובת לא נמצאה');
+      }
+    } catch { alert('שגיאת חיפוש'); }
+    finally { searchGoBtn.disabled = false; searchGoBtn.textContent = 'חפש'; }
+  };
+
+  searchGoBtn?.addEventListener('click', doSearch);
+  searchInput?.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+  cardModalMap.invalidateSize();
 }
 
 function closeModal() {
+  if (cardModalMap) { try { cardModalMap.remove(); } catch {} cardModalMap = null; }
   statusModalUploadedMediaItems = [];
   document.querySelector('.modal-overlay')?.remove();
 }
@@ -1550,6 +1688,8 @@ async function saveStatusCard(idx) {
   const familyCenterLocation = document.getElementById('familyCenterLocation')?.value.trim() || '';
   const municipalForcesOther = document.getElementById('municForcesOther')?.value.trim() || '';
   const sceneToolsOther = document.getElementById('sceneToolsOther')?.value.trim() || '';
+  const cardLatVal = parseFloat(document.getElementById('cardLat')?.value) || null;
+  const cardLngVal = parseFloat(document.getElementById('cardLng')?.value) || null;
   const mediaItemsFromLinks = parseMediaItems(document.getElementById('cardMedia')?.value || '');
   const mediaItems = Array.from(new Set([
     ...mediaItemsFromLinks,
@@ -1641,6 +1781,8 @@ async function saveStatusCard(idx) {
     sceneTools,
     mediaItems,
     visibility,
+    lat: cardLatVal,
+    lng: cardLngVal,
     updated: new Date().toISOString()
   };
 
