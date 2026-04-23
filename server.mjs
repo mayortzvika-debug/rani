@@ -85,8 +85,8 @@ function sendFile(response, filePath) {
       '.ico': 'image/x-icon',
     }[ext] ?? 'application/octet-stream'
 
-  // HTML must never be cached — JS/CSS/media can be cached (Vite adds hashes)
-  const cacheControl = ext === '.html'
+  // HTML and JS/CSS must never be cached (no content hashes in filenames)
+  const cacheControl = ['.html', '.js', '.css'].includes(ext)
     ? 'no-store, no-cache, must-revalidate'
     : 'public, max-age=31536000, immutable'
 
