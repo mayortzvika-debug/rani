@@ -517,10 +517,8 @@ function switchTab(tabName) {
 
   if (tabName === 'status') {
     loadStatusCards();
-  }
-
-  if (tabName === 'map') {
-    initMap();
+    // המפה כעת בתוך לשונית תמונת מצב
+    setTimeout(() => initMap(), 100);
   }
 
   if (tabName === 'sitrep') {
@@ -529,10 +527,6 @@ function switchTab(tabName) {
 
   if (tabName === 'evacuees') {
     if (typeof initEvacueesTab === 'function') initEvacueesTab();
-  }
-
-  if (tabName === 'infrastructure') {
-    if (typeof initInfraTab === 'function') initInfraTab();
   }
 
   if (tabName === 'shelters') {
@@ -2055,3 +2049,19 @@ openSitrepEditorBtn?.addEventListener('click', openSitrepEditorModal);
 
 loadStatusCards();
 loadSitrepLatest();
+
+// ============================================================
+// POST-LOGIN INIT — נקרא מ-auth.js לאחר כניסה מוצלחת
+// ============================================================
+window.__afterLogin = function() {
+  // טען את הלשונית הפעילה הנוכחית
+  const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('data-tab') || 'status';
+  switchTab(activeTab);
+  // טען נתונים בסיסיים
+  loadData();
+  loadStatusCards();
+  loadSitrepLatest();
+  if (typeof initSheltersTab === 'function') {
+    // אל תטעון אם לא בלשונית המקלטים
+  }
+};

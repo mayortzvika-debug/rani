@@ -26,21 +26,20 @@
   
   <div class="tabs-container">
     <div class="tabs">
-      <button class="tab-btn active" data-tab="dashboard">📊 דשבורד</button>
-      <button class="tab-btn" data-tab="entries">📋 יומן אירועים</button>
-      <button class="tab-btn" data-tab="status">תמונת מצב</button>
-      <button class="tab-btn" data-tab="map">מפה</button>
+      <button class="tab-btn active" data-tab="status">🗺️ תמונת מצב</button>
       <button class="tab-btn" data-tab="evacuees">🏘️ מפונים</button>
-      <button class="tab-btn" data-tab="infrastructure">⚡ תשתיות</button>
       <button class="tab-btn" data-tab="shelters">🏠 מקלטים</button>
       <button class="tab-btn" data-tab="hotels">🏨 מלונות</button>
-      <button class="tab-btn" data-tab="sitrep">עיקרי הערכת מצב</button>
+      <button class="tab-btn" data-tab="ambassadors">🤝 שגרירים</button>
+      <button class="tab-btn" data-tab="sitrep">🧭 הערכת מצב</button>
+      <button class="tab-btn" data-tab="entries">📋 יומן אירועים</button>
       <button class="tab-btn" data-tab="users">👥 ניהול משתמשים</button>
+      <button class="tab-btn" data-tab="dashboard">📊 דשבורד</button>
     </div>
   </div>
 
   <!-- TAB: דשבורד -->
-  <div id="dashboard-tab" class="tab-content active">
+  <div id="dashboard-tab" class="tab-content">
     <section class="dashboard-kpis" id="dashboard-kpis-row">
       <div class="dash-kpi" id="dkpi-events"><div class="dkpi-val">—</div><div class="dkpi-label">סה"כ אירועים</div></div>
       <div class="dash-kpi" id="dkpi-open"><div class="dkpi-val">—</div><div class="dkpi-label">אירועים פתוחים</div></div>
@@ -143,33 +142,28 @@
   </section>
   </div>
 
-  <!-- TAB: תמונת מצב -->
-  <div id="status-tab" class="tab-content">
+  <!-- TAB: תמונת מצב + מפה -->
+  <div id="status-tab" class="tab-content active">
+    <!-- קוביות תמונת מצב -->
     <section class="panel status-dashboard-panel">
       <div class="panel-head">
         <h2>📊 תמונת מצב</h2>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <span id="statusSyncStatus" class="sync-status sync-status-warn">⚠️ סטטוס סנכרון לא ידוע</span>
-          <button id="addStatusCard" class="btn-secondary">+ הוסף קובייה חדשה</button>
+          <button id="addStatusCard" class="btn-secondary write-only">+ הוסף קובייה חדשה</button>
         </div>
       </div>
-
       <section class="status-summary-kpis">
         <div class="card"><div class="label">סה"כ פצועים</div><div id="statusKpiInjured" class="value">0</div></div>
         <div class="card"><div class="label">מספר זירות</div><div id="statusKpiScenes" class="value">0</div></div>
         <div class="card"><div class="label">מנותקי קשר</div><div id="statusKpiDisconnected" class="value">0</div></div>
         <div class="card"><div class="label">מבנים שנפגעו</div><div id="statusKpiDamaged" class="value">0</div></div>
       </section>
-
-      <div id="statusCardsContainer" class="status-cards-grid">
-        <!-- קוביות יתווספו כאן -->
-      </div>
+      <div id="statusCardsContainer" class="status-cards-grid"></div>
     </section>
-  </div>
 
-  <!-- TAB: מפה / GIS -->
-  <div id="map-tab" class="tab-content">
-    <section class="panel map-panel">
+    <!-- מפה — חלק שני של תמונת מצב -->
+    <section class="panel map-panel" style="margin-top:16px">
       <div class="panel-head">
         <h2>🗺️ מפה ותיוק אירועים</h2>
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -178,10 +172,9 @@
           <button id="mapPrintBtn" class="btn-secondary" type="button">🖨️ הדפס מפה</button>
           <button id="mapUndoBtn" class="btn-secondary" type="button">הסר נקודה אחרונה</button>
           <button id="mapResetBtn" class="btn-secondary" type="button">אפס סימון</button>
-          <span id="mapHintText">לחץ על המפה כדי לסמן מיקום בתצ"א.</span>
+          <span id="mapHintText" style="font-size:0.82rem; color:#94a3b8">לחץ על המפה לסימון מיקום</span>
         </div>
       </div>
-      <!-- בחירת סוג סימון -->
       <div class="marker-type-toolbar">
         <span class="marker-type-label">סוג סימון:</span>
         <div class="marker-type-chips" id="markerTypeChips">
@@ -201,7 +194,6 @@
           <input id="customMarkerLabel" type="text" placeholder="תיאור הסימון" style="flex:1" />
         </div>
       </div>
-
       <div class="map-toolbar">
         <div class="map-search-row">
           <input id="mapAddressInput" type="text" placeholder="הזן כתובת בבת ים" />
@@ -229,7 +221,6 @@
           </div>
         </div>
         <aside class="map-side-panel">
-          <!-- מרכזי משפחות -->
           <div class="map-side-card">
             <div style="display:flex; justify-content:space-between; align-items:center">
               <h3>🏢 מרכזי משפחות</h3>
@@ -242,26 +233,49 @@
           </div>
         </aside>
       </div>
-      <div style="margin-top:12px; color:#cbd5e1; font-size:0.95rem;">
-        אפשר לחפש כתובת בבת ים, להתמקד מיד על התצ&quot;א, ולסמן כמה נקודות במרחב. אם השרת תומך בשדות <code>latitude</code>/<code>longitude</code>, הנקודה האחרונה תישלח עם האירוע.
-      </div>
     </section>
   </div>
 
-  <!-- TAB: עיקרי הערכת מצב -->
+  <!-- TAB: הערכת מצב -->
   <div id="sitrep-tab" class="tab-content">
     <section class="panel">
       <div class="panel-head">
         <h2>🧭 עיקרי הערכת מצב</h2>
-        <button type="button" id="openSitrepEditorBtn">עדכון הערכת מצב</button>
+        <button type="button" id="openSitrepEditorBtn" class="write-only">עדכון הערכת מצב</button>
       </div>
     </section>
-
     <section class="panel">
       <h2>הערכת מצב אחרונה</h2>
       <div id="sitrepLatestContainer">אין הערכת מצב שמורה</div>
     </section>
   </div>
+
+  <!-- TAB: שגרירים -->
+  <div id="ambassadors-tab" class="tab-content">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>🤝 שגרירי בת ים</h2>
+        <a href="https://batyam-ambassadors.netlify.app/" target="_blank" class="btn-secondary" style="text-decoration:none; padding:6px 14px">🔗 פתח בחלון חדש</a>
+      </div>
+      <p style="color:#94a3b8; margin:8px 0 12px; font-size:0.9rem">מפת שגרירי בת ים — פעילות קהילתית ומנהיגות שכונתית</p>
+    </section>
+    <div id="ambassadors-frame-container" style="border-radius:12px; overflow:hidden; border:1px solid rgba(148,163,184,0.15); min-height:600px; position:relative">
+      <iframe
+        id="ambassadors-iframe"
+        src="https://batyam-ambassadors.netlify.app/"
+        style="width:100%; height:700px; border:none; display:block"
+        title="מפת שגרירי בת ים"
+        onload="document.getElementById('ambassadors-fallback').style.display='none'"
+        onerror="document.getElementById('ambassadors-fallback').style.display='flex'"
+      ></iframe>
+      <div id="ambassadors-fallback" style="display:none; position:absolute; inset:0; background:#0f172a; flex-direction:column; align-items:center; justify-content:center; gap:16px; border-radius:12px">
+        <div style="font-size:3rem">🤝</div>
+        <div style="color:#94a3b8; font-size:1rem">המפה חסומה להטמעה — פתח בחלון נפרד</div>
+        <a href="https://batyam-ambassadors.netlify.app/" target="_blank" class="btn-secondary" style="text-decoration:none; padding:10px 24px; font-size:1rem">פתח מפת שגרירים</a>
+      </div>
+    </div>
+  </div>
+
   <!-- TAB: מפונים -->
   <div id="evacuees-tab" class="tab-content">
     <section class="panel">
@@ -295,27 +309,28 @@
     </section>
   </div>
 
-  <!-- TAB: תשתיות -->
-  <div id="infrastructure-tab" class="tab-content">
-    <section class="panel">
-      <div class="panel-head">
-        <h2>⚡ מצב תשתיות</h2>
-        <button class="btn-secondary write-only" onclick="openAddInfraModal()">+ הוסף פריט תשתית</button>
-      </div>
-    </section>
-    <section class="panel">
-      <div id="infra-table-container">
-        <p style="color:#94a3b8; padding:20px">טוען...</p>
-      </div>
-    </section>
-  </div>
-
   <!-- TAB: מקלטים -->
   <div id="shelters-tab" class="tab-content">
     <section class="panel">
       <div class="panel-head">
-        <h2>🏠 ניהול מקלטים ומרכזי פינוי</h2>
-        <button class="btn-secondary write-only" onclick="openAddShelterModal()">+ הוסף מקלט</button>
+        <h2>🏠 ניהול מקלטים</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+          <button class="btn-secondary write-only" onclick="openAddShelterModal()">+ הוסף מקלט</button>
+          <label class="btn-secondary write-only" style="cursor:pointer; margin:0">
+            📥 ייבוא קובץ
+            <input type="file" id="sheltersImportFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="importSheltersFile(this.files[0])" />
+          </label>
+        </div>
+      </div>
+      <!-- סינון לפי קטגוריה -->
+      <div class="sub-tabs-container" style="margin-top:8px">
+        <div class="sub-tabs" id="shelter-category-tabs">
+          <button class="sub-tab-btn active" data-category="all">הכל</button>
+          <button class="sub-tab-btn" data-category="public">🏢 ציבורי</button>
+          <button class="sub-tab-btn" data-category="school_external">🏫 בי"ס חיצוני</button>
+          <button class="sub-tab-btn" data-category="school_internal">🏫 בי"ס פנימי</button>
+          <button class="sub-tab-btn" data-category="parking">🅿️ חניון</button>
+        </div>
       </div>
     </section>
     <div id="shelters-grid" class="shelters-grid">
