@@ -42,9 +42,9 @@ let loginAttempts  = {};  // { username: { count, lockedUntil } }
 // INIT
 // ============================================================
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initAuth);
+  document.addEventListener('DOMContentLoaded', () => window.initAuth());
 } else {
-  initAuth();
+  window.initAuth();
 }
 
 async function initAuth() {
@@ -95,12 +95,11 @@ function createLoginOverlay() {
       </form>
       <div class="auth-footer">
         <span>🔒 מידע רגיש — גישה מורשית בלבד</span>
-        <button type="button" onclick="resetAuthData()" style="background:none; border:none; color:#334155; font-size:0.72rem; cursor:pointer; padding:0; text-decoration:underline">איפוס חשבונות</button>
       </div>
     </div>
   `;
   document.body.prepend(overlay);
-  document.getElementById('auth-form').addEventListener('submit', handleLogin);
+  document.getElementById('auth-form').addEventListener('submit', (e) => window.handleLogin(e));
 }
 
 // ============================================================
@@ -371,11 +370,6 @@ function saveUsers(users) {
   localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
 }
 
-// זיהוי hash ישן (100k iterations — 64 תווים hex ללא prefix)
-function isLegacyHash(hash) {
-  return hash && !hash.startsWith('fallback_') && hash.length === 64;
-}
-
 async function ensureDefaultAdmin() {
   const users = getUsers();
 
@@ -396,27 +390,6 @@ async function ensureDefaultAdmin() {
       lastLogin:          null,
     }]);
     return;
-  }
-
-  // אם כל המשתמשים הם admin עם hash ישן (100k iterations) — אפס אותם
-  const adminUser = users.find(u => u.username === 'admin');
-  if (adminUser && isLegacyHash(adminUser.passwordHash)) {
-    // hash ישן — מחק והתחל מחדש עם hash חדש
-    localStorage.removeItem(AUTH_USERS_KEY);
-    const salt = _randomSalt();
-    const hash = await hashPassword('admin123', salt);
-    saveUsers([{
-      id:                 adminUser.id || _randomId(),
-      username:           'admin',
-      displayName:        adminUser.displayName || 'מנהל מערכת',
-      role:               'admin',
-      passwordHash:       hash,
-      salt,
-      mustChangePassword: false,
-      locked:             false,
-      createdAt:          adminUser.createdAt || new Date().toISOString(),
-      lastLogin:          adminUser.lastLogin || null,
-    }]);
   }
 }
 
@@ -462,7 +435,7 @@ async function handleChangePassword() {
   const user  = users.find(u => u.id === currentUser.id);
   if (!user) return;
 
-  const salt           = crypto.randomUUID();
+  const salt           = _randomSalt();
   user.passwordHash    = await hashPassword(newPass, salt);
   user.salt            = salt;
   user.mustChangePassword = false;
@@ -615,7 +588,7 @@ async function resetUserPassword(userId) {
   const user  = users.find(u => u.id === userId);
   if (!user) return;
 
-  const salt           = crypto.randomUUID();
+  const salt           = _randomSalt();
   user.passwordHash    = await hashPassword(newPass, salt);
   user.salt            = salt;
   user.mustChangePassword = true;

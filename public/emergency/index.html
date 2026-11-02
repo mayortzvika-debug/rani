@@ -216,6 +216,9 @@
             📥 ייבוא CSV/Excel
             <input type="file" id="residentsImportFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="importResidentsFile(this.files[0])" />
           </label>
+          <button class="btn-secondary" onclick="exportResidentsExcel()" title="מייצא את כל התושבים; אפשר לערוך ולייבא חזרה כעדכון">📤 ייצוא Excel</button>
+          <button class="btn-secondary write-only" onclick="downloadResidentsTemplate()">📄 תבנית ריקה</button>
+          <button class="btn-secondary write-only" onclick="geocodeMissingResidents()" title="מחשב מיקום על המפה לתושבים שאין להם">📍 חשב מיקומים</button>
         </div>
       </div>
     </section>
@@ -241,17 +244,24 @@
   <div id="shelters-tab" class="tab-content">
     <section class="panel">
       <div class="panel-head">
-        <h2>🏠 ניהול מקלטים</h2>
+        <h2>🏠 מקלטים — דיירים, מצב בזמן אמת ופעילות</h2>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
-          <button class="btn-secondary write-only" onclick="openAddShelterModal()">+ הוסף מקלט</button>
-          <label class="btn-secondary write-only" style="cursor:pointer; margin:0">
-            📥 ייבוא קובץ
+          <button type="button" id="sh-sync-badge" class="sh-sync">🔌 מקומי בלבד</button>
+          <button class="btn-secondary sh-write" onclick="openAddShelterModal()">+ הוסף מקלט</button>
+          <label class="btn-secondary sh-write" style="cursor:pointer; margin:0">
+            📥 ייבוא Excel
             <input type="file" id="sheltersImportFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="importSheltersFile(this.files[0])" />
           </label>
+          <button class="btn-secondary" onclick="exportSheltersExcel()" title="מייצא את כל המקלטים והדיירים; אפשר לערוך ולייבא חזרה כעדכון">📤 ייצוא Excel</button>
+          <button class="btn-secondary sh-write" onclick="downloadSheltersTemplate()">📄 תבנית ריקה</button>
         </div>
       </div>
-      <!-- סינון לפי קטגוריה -->
-      <div class="sub-tabs-container" style="margin-top:8px">
+      <div class="sh-views" id="shelter-view-tabs">
+        <button class="sv-btn active" data-view="list" onclick="shSetView('list')">📋 רשימה</button>
+        <button class="sv-btn" data-view="live" onclick="shSetView('live')">🗺️ מפה עירונית חיה</button>
+        <button class="sv-btn" data-view="report" onclick="shSetView('report')">📊 דוח פעילות וערכות</button>
+      </div>
+      <div class="sub-tabs-container" id="shelter-list-controls" style="margin-top:8px">
         <div class="sub-tabs" id="shelter-category-tabs">
           <button class="sub-tab-btn active" data-category="all">הכל</button>
           <button class="sub-tab-btn" data-category="public">🏢 ציבורי</button>
@@ -264,6 +274,8 @@
     <div id="shelters-grid" class="shelters-grid">
       <p style="color:#94a3b8; padding:20px">טוען...</p>
     </div>
+    <div id="shelters-live-view" style="display:none"></div>
+    <div id="shelters-report-view" style="display:none"></div>
   </div>
 
   <!-- TAB: מלונות -->
@@ -317,7 +329,11 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="auth.js"></script>
+  <script src="auth_server.js"></script>
   <script src="modules.js"></script>
   <script src="emergency_dashboard.js"></script>
+  <script src="shelters_ops.js"></script>
+  <script src="em_sync.js"></script>
+  <script src="excel_io.js"></script>
 </body>
 </html>

@@ -24,6 +24,7 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/public ./public
 COPY --from=build /app/server.mjs ./server.mjs
+COPY --from=build /app/em-auth.mjs ./em-auth.mjs
 
 EXPOSE 8080
 

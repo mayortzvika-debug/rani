@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import { mkdirSync, existsSync, readFileSync, writeFileSync, createReadStream } from 'node:fs'
-import { extname, join, resolve, basename } from 'node:path'
+import { extname, join, resolve, basename, sep } from 'node:path'
+import { createEmApi } from './em-auth.mjs'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -37,10 +38,15 @@ function text(response, statusCode, payload) {
   response.end(payload)
 }
 
-function readBody(request) {
+function readBody(request, maxBytes = Infinity) {
   return new Promise((resolve, reject) => {
     const chunks = []
-    request.on('data', (chunk) => chunks.push(chunk))
+    let size = 0
+    request.on('data', (chunk) => {
+      size += chunk.length
+      if (size > maxBytes) { reject(new Error('Body too large')); request.destroy(); return }
+      chunks.push(chunk)
+    })
     request.on('end', () => resolve(Buffer.concat(chunks)))
     request.on('error', reject)
   })
@@ -64,6 +70,12 @@ function setSession(sessionCode, state) {
 function getSession(sessionCode) {
   const db = readSessions()
   return db.sessions[sessionCode] ?? null
+}
+
+// Resolve a request path under baseDir; null if it escapes baseDir
+function safeJoin(baseDir, relPath) {
+  const full = resolve(baseDir, relPath.replace(/^\/+/, ''))
+  return full === baseDir || full.startsWith(baseDir + sep) ? full : null
 }
 
 function sendFile(response, filePath) {
@@ -94,6 +106,10 @@ function sendFile(response, filePath) {
   createReadStream(filePath).pipe(response)
 }
 
+const em = createEmApi({ storageDir, json, text, readBody })
+await em.init()
+if (process.argv.includes('--reset-admin')) { await em.resetAdmin(); process.exit(0) }
+
 createServer(async (request, response) => {
   if (!request.url) {
     text(response, 400, 'Missing URL')
@@ -101,7 +117,13 @@ createServer(async (request, response) => {
   }
 
   const url = new URL(request.url, `http://${request.headers.host}`)
-  const pathname = decodeURIComponent(url.pathname)
+  let pathname
+  try { pathname = decodeURIComponent(url.pathname) } catch { text(response, 400, 'Bad URL'); return }
+  if (pathname.includes('\0')) { text(response, 400, 'Bad URL'); return }
+  const codeSeg = pathname.startsWith('/api/session/') ? pathname.split('/')[3] : undefined
+  if (codeSeg !== undefined && !/^[A-Za-z0-9_-]{1,32}$/.test(codeSeg)) { text(response, 400, 'Bad session code'); return }
+
+  if (await em.handle(request, response, pathname)) return
 
   if (request.method === 'GET' && pathname === '/health') {
     json(response, 200, { ok: true, storageDir, updatedAt: new Date().toISOString() })
@@ -236,7 +258,8 @@ createServer(async (request, response) => {
   }
 
   // CORS proxy for emergency dashboard (Google Apps Script + Nominatim + Red Alert)
-  if (pathname === '/api/proxy') {
+  if (pathname === '/api/proxy' && request.method !== 'OPTIONS') {
+    if (!em.requireSession(request)) { text(response, 401, 'Not authenticated'); return }
     const ALLOWED_HOSTS = [
       'script.google.com',
       'script.googleusercontent.com',
@@ -280,7 +303,6 @@ createServer(async (request, response) => {
       const upstreamText = await upstream.text()
       response.writeHead(upstream.status, {
         'Content-Type': upstream.headers.get('content-type') || 'application/json',
-        'Access-Control-Allow-Origin': '*',
       })
       response.end(upstreamText)
     } catch (err) {
@@ -289,25 +311,23 @@ createServer(async (request, response) => {
     return
   }
 
-  // OPTIONS preflight for proxy
-  if (request.method === 'OPTIONS' && pathname === '/api/proxy') {
-    response.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST', 'Access-Control-Allow-Headers': 'Content-Type' })
-    response.end()
-    return
-  }
-
   // Serve uploaded files
   if (pathname.startsWith('/uploads/')) {
-    const filePath = join(storageDir, pathname.replace(/^\//, ''))
-    if (existsSync(filePath)) { sendFile(response, filePath); return }
+    const filePath = safeJoin(uploadsDir, pathname.replace(/^\/uploads\//, ''))
+    if (filePath && existsSync(filePath)) { sendFile(response, filePath); return }
+  }
+
+  // The dashboard lives in public/emergency — make /emergency and /emergency/ open it
+  if (request.method === 'GET' && (pathname === '/emergency' || pathname === '/emergency/')) {
+    sendFile(response, join(publicDir, 'emergency', 'index.html')); return
   }
 
   // Serve built frontend assets
-  const assetPath = pathname === '/' ? join(distDir, 'index.html') : join(distDir, pathname.replace(/^\//, ''))
-  if (existsSync(assetPath) && !pathname.endsWith('/')) { sendFile(response, assetPath); return }
+  const assetPath = pathname === '/' ? join(distDir, 'index.html') : safeJoin(distDir, pathname)
+  if (assetPath && existsSync(assetPath) && !pathname.endsWith('/')) { sendFile(response, assetPath); return }
 
-  const publicPath = join(publicDir, pathname.replace(/^\//, ''))
-  if (existsSync(publicPath) && !pathname.endsWith('/')) { sendFile(response, publicPath); return }
+  const publicPath = safeJoin(publicDir, pathname)
+  if (publicPath && existsSync(publicPath) && !pathname.endsWith('/')) { sendFile(response, publicPath); return }
 
   if (existsSync(join(distDir, 'index.html'))) { sendFile(response, join(distDir, 'index.html')); return }
 

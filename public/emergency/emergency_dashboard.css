@@ -898,3 +898,65 @@ tbody tr:hover           { background: var(--primary-bg); }
 @media (max-width: 1100px) {
   .dashboard-kpis { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ============================================================
+   Shelters ops (shelters_ops.js)
+   ============================================================ */
+.sh-views { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+.sv-btn { padding:8px 16px; border:1px solid var(--border-mid); background:var(--surface); border-radius:999px; cursor:pointer; font-size:.9rem; color:var(--text-2); }
+.sv-btn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+.sh-sync { border:1px solid var(--border-mid); background:var(--surface-2); border-radius:999px; padding:6px 12px; font-size:.8rem; cursor:pointer; color:var(--text-2); }
+.sh-muted { color:var(--text-3); font-size:.83rem; }
+.sh-line { font-size:.85rem; color:var(--text-2); margin-top:6px; }
+.sh-line code, .sh-pass { background:var(--surface-2); border:1px solid var(--border); padding:1px 6px; border-radius:6px; direction:ltr; unicode-bidi:embed; user-select:all; }
+.sh-chip { padding:2px 9px; border-radius:12px; font-size:.78rem; font-weight:500; }
+.sh-open { background:var(--success-bg); color:var(--success); }
+.sh-closed { background:var(--danger-bg); color:var(--danger); }
+.sh-note { border-right:3px solid; background:var(--surface-2); padding:6px 10px; border-radius:8px; font-size:.85rem; margin-bottom:6px; }
+.sh-notes { margin-top:8px; font-size:.85rem; color:var(--text-2); background:var(--surface-2); padding:8px; border-radius:8px; }
+.sh-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
+.sh-actions .btn-secondary, .sh-table .btn-secondary { padding:3px 9px; font-size:.78rem; }
+.sh-danger { background:var(--danger-bg) !important; color:var(--danger) !important; }
+.shelter-card.lvl-critical { background:var(--danger-bg); box-shadow:0 0 0 2px rgba(220,38,38,.25); }
+.shelter-card.lvl-incident { background:var(--warn-bg); }
+.sh-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:8px; }
+.sh-grid4 { grid-template-columns:repeat(4,1fr); }
+.sh-sec { margin:14px 0 8px; font-weight:600; font-size:.9rem; color:var(--text-2); }
+.sh-check { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:.9rem; color:var(--text-2); }
+.sh-levels { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+.sh-level { border:2px solid var(--c); border-radius:10px; padding:10px; cursor:pointer; display:flex; gap:6px; align-items:center; }
+.sh-level:has(input:checked) { background:var(--c); color:#fff; }
+.sh-log { max-height:180px; overflow:auto; font-size:.83rem; display:grid; gap:4px; }
+.sh-table { width:100%; border-collapse:collapse; font-size:.86rem; }
+.sh-table th { text-align:right; color:var(--text-3); padding:6px 8px; border-bottom:2px solid var(--border); font-weight:500; }
+.sh-table td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+.sh-table input:not([type=checkbox]) { width:100%; min-width:70px; }
+.sh-filters { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px; }
+.sh-filters label { display:grid; gap:3px; font-size:.8rem; color:var(--text-3); }
+.sh-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:14px; }
+.sh-kpi { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; box-shadow:var(--shadow-sm); }
+.sh-kpi div { font-size:1.7rem; font-weight:700; color:var(--text-1); }
+.sh-kpi small { font-size:.9rem; color:var(--text-4); font-weight:400; }
+.sh-kpi span { font-size:.8rem; color:var(--text-3); }
+.sh-kpi-hot { background:var(--danger-bg); border-color:var(--danger); }
+.sh-kpi-hot div { color:var(--danger); }
+.sh-report-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:18px; }
+.sh-report-cols h4 { margin:0 0 6px; }
+.sh-alert { background:var(--danger-bg); border:1px solid var(--danger); border-radius:var(--radius); padding:12px; margin-bottom:12px; }
+.sh-alert-row { cursor:pointer; border-right:4px solid; padding:6px 10px; margin-top:6px; background:#fff; border-radius:8px; font-size:.88rem; }
+.sh-impact { background:var(--warn-bg); border:1px solid var(--warn); border-radius:var(--radius); padding:12px; margin-bottom:12px; }
+.sh-hint { color:var(--text-3); font-size:.85rem; margin-bottom:10px; }
+.sh-live-grid { display:grid; grid-template-columns:1fr 320px; gap:12px; }
+.sh-map-bar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; font-size:.82rem; flex-wrap:wrap; }
+.sh-legend i { display:inline-block; width:10px; height:10px; border-radius:50%; margin:0 8px 0 3px; }
+#sh-live-map { height:560px; border-radius:var(--radius); border:1px solid var(--border); z-index:0; }
+.sh-live-list { max-height:586px; overflow:auto; display:grid; gap:8px; align-content:start; }
+.sh-live-item { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 10px; cursor:pointer; }
+.sh-live-item:hover { background:var(--primary-bg); }
+.sh-pin { width:34px; height:34px; border-radius:50%; background:var(--c); color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; border:3px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.4); font-size:.85rem; }
+.sh-pin-closed { opacity:.45; filter:grayscale(1); }
+.sh-pulse { animation:shPulse 1.4s infinite; }
+@keyframes shPulse { 0%{box-shadow:0 0 0 0 rgba(220,38,38,.7)} 70%{box-shadow:0 0 0 18px rgba(220,38,38,0)} 100%{box-shadow:0 0 0 0 rgba(220,38,38,0)} }
+.sh-impact-pin { font-size:1.6rem; text-align:center; }
+@media (max-width: 800px) { .sh-live-grid { grid-template-columns:1fr; } .sh-grid, .sh-levels { grid-template-columns:1fr; } .sh-grid4 { grid-template-columns:1fr 1fr; } #sh-live-map { height:380px; } }
+@media print { .topbar, .sh-views, .sh-filters button, .panel-head > div, #shelters-grid { display:none !important; } }
