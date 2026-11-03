@@ -663,7 +663,7 @@ function renderEvacueesTable() {
           ${(r.household?.length > 0) ? `<span class="family-badge" onclick="toggleHousehold('${r.id}')">👨‍👩‍👧 ${r.household.length}</span>` : ''}
         </td>
         <td>
-          <a href="javascript:void(0)" onclick="openBuildingCard('${mEscape(r.address || '')}')" class="address-link">${mEscape(r.address || '—')}</a>
+          <a href="javascript:void(0)" data-addr="${mEscape(r.address || '')}" onclick="openBuildingCard(this.dataset.addr)" class="address-link">${mEscape(r.address || '—')}</a>
         </td>
         <td>${mEscape(r.floor || '—')}</td>
         <td>${r.age || '—'}</td>

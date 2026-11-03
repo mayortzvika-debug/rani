@@ -283,7 +283,8 @@ createServer(async (request, response) => {
       }
       if (!targetUrl) { text(response, 400, 'Missing url parameter'); return }
       const parsedTarget = new URL(targetUrl)
-      if (!ALLOWED_HOSTS.some(h => parsedTarget.hostname === h || parsedTarget.hostname.endsWith('.' + h))) {
+      const isAllowedHost = (host) => ALLOWED_HOSTS.some(h => host === h || host.endsWith('.' + h))
+      if (!isAllowedHost(parsedTarget.hostname)) {
         text(response, 403, 'Host not allowed: ' + parsedTarget.hostname); return
       }
       const upstreamMethod = (parsedBody?.method || (request.method === 'GET' ? 'GET' : 'POST')).toUpperCase()
@@ -299,7 +300,23 @@ createServer(async (request, response) => {
         fetchOptions.body = JSON.stringify(parsedBody.body)
         fetchOptions.headers['Content-Type'] = 'application/json'
       }
-      const upstream = await fetch(targetUrl, fetchOptions)
+      // follow redirects by hand so every hop stays on an allowed host
+      let hopUrl = targetUrl
+      let upstream
+      for (let hop = 0; hop < 5; hop++) {
+        const u = new URL(hopUrl)
+        if (u.protocol !== 'https:' || !isAllowedHost(u.hostname)) { text(response, 403, 'Redirect target not allowed: ' + u.hostname); return }
+        upstream = await fetch(hopUrl, { ...fetchOptions, redirect: 'manual' })
+        const loc = upstream.headers.get('location')
+        if (upstream.status >= 300 && upstream.status < 400 && loc) {
+          hopUrl = new URL(loc, hopUrl).toString()
+          if (upstream.status === 303 || ((upstream.status === 301 || upstream.status === 302) && fetchOptions.method === 'POST')) {
+            fetchOptions.method = 'GET'; delete fetchOptions.body
+          }
+          continue
+        }
+        break
+      }
       const upstreamText = await upstream.text()
       response.writeHead(upstream.status, {
         'Content-Type': upstream.headers.get('content-type') || 'application/json',
@@ -318,7 +335,11 @@ createServer(async (request, response) => {
   }
 
   // The dashboard lives in public/emergency — make /emergency and /emergency/ open it
-  if (request.method === 'GET' && (pathname === '/emergency' || pathname === '/emergency/')) {
+  // (the trailing slash matters: the page loads auth.js, em_sync.js ... by relative path)
+  if (request.method === 'GET' && pathname === '/emergency') {
+    response.writeHead(301, { Location: '/emergency/' + url.search }); response.end(); return
+  }
+  if (request.method === 'GET' && pathname === '/emergency/') {
     sendFile(response, join(publicDir, 'emergency', 'index.html')); return
   }
 

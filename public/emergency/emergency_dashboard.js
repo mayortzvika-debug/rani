@@ -333,7 +333,6 @@ async function appendEventWithFallback(base, payload) {
 }
 
 function render(rows) {
-  console.log('🎨 Rendering rows:', rows);
   
   if (!rows.length) {
     eventsBody.innerHTML = '<tr><td colspan="8">אין נתונים</td></tr>';
@@ -347,7 +346,6 @@ function render(rows) {
   let c24 = 0;
 
   rows.forEach(r => {
-    console.log('📊 Processing row:', r);
     const t = parseTime(r.timestamp);
     if (t && t >= dayAgo) c24++;
   });
@@ -376,11 +374,9 @@ function render(rows) {
       <td>${escapeHtml(r.source || 'Telegram')}</td>
     </tr>
     `;
-    console.log('HTML for row:', row);
     return row;
   }).join('');
   
-  console.log('✅ Final HTML:', html);
   eventsBody.innerHTML = html;
 }
 
@@ -396,7 +392,6 @@ async function fetchJson(url, options) {
     const res = await fetch(url, options);
     const text = await res.text();
     
-    console.log('🔍 Response:', { status: res.status, text: text.substring(0, 200) });
     
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${text}`);
@@ -1053,7 +1048,7 @@ function createStatusCardElement(card, idx) {
       <div style="margin-top:6px; border-radius:8px; overflow:hidden; border:1px solid rgba(148,163,184,0.15); height:160px" id="cardViewMap_${card.id}"></div>
       <div style="margin-top:4px; font-size:0.78rem; color:#94a3b8; display:flex; gap:10px">
         <span>📍 ${Number(card.lat).toFixed(5)}, ${Number(card.lng).toFixed(5)}</span>
-        <a href="https://www.openstreetmap.org/?mlat=${card.lat}&mlon=${card.lng}&zoom=17" target="_blank" rel="noopener" style="color:#38bdf8; text-decoration:none">פתח במפה ↗</a>
+        <a href="https://www.openstreetmap.org/?mlat=${Number(card.lat)}&mlon=${Number(card.lng)}&zoom=17" target="_blank" rel="noopener" style="color:#38bdf8; text-decoration:none">פתח במפה ↗</a>
       </div>
     </div>
     ` : ''}
@@ -1064,6 +1059,9 @@ function createStatusCardElement(card, idx) {
       <div class="status-media-grid">
         ${mediaItems.map((url) => {
           const safeUrl = escapeHtml(url);
+          if (!/^(https?:\/\/|data:(image|video)\/|blob:)/i.test(String(url).trim())) {
+            return `<span class="status-media-link" title="${safeUrl}">⚠️ קישור לא נתמך</span>`;
+          }
           const type = mediaTypeFromUrl(url);
           if (type === 'image') {
             return `<a href="${safeUrl}" target="_blank" rel="noopener"><img class="status-media-thumb" src="${safeUrl}" alt="media"></a>`;

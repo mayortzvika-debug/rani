@@ -142,6 +142,7 @@
       const idx = () => new Map(list.map((r, i) => [String(r.id), i]));
 
       for (const env of envs) {
+        if (!/^[\w.\-]{1,64}$/.test(String(env.id))) continue; // ids end up in HTML attributes
         const e = m[env.id];
         if (e && !forceServer) {
           if (env.updatedAt === e.u) { e.dirty = false; continue; }  // אישור על מה ששלחנו

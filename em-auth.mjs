@@ -273,7 +273,7 @@ export function createEmApi({ storageDir, json, text, readBody }) {
           const incoming = b.changes?.[name]
           if (canWrite && Array.isArray(incoming)) {
             for (const env of incoming) {
-              if (!env || typeof env.id !== 'string' || env.id.length > 64 || typeof env.updatedAt !== 'string') continue
+              if (!env || typeof env.id !== 'string' || !/^[\w.\-]{1,64}$/.test(env.id) || typeof env.updatedAt !== 'string') continue
               const cur = store[env.id]
               if (cur && env.updatedAt <= cur.updatedAt) continue
               state.rev++
